@@ -1,0 +1,15 @@
+# Optional: standalone Postgres on 5433. Default dev uses Supabase CLI (`pnpm supabase:start`, DB on 54322).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bp_record_pool
+    ports:
+      - "5433:5432"
+    volumes:
+      - bp_record_pool_pg:/var/lib/postgresql/data
+
+volumes:
+  bp_record_pool_pg:

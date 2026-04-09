@@ -1,0 +1,25 @@
+/* Licensed Saans in `public/fonts/` → `/fonts/…`
+   Use single-token font-family names so minifiers never emit invalid unquoted "Saans SemiMono". */
+@font-face {
+  font-family: Saans;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/Saans-Medium.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: Saans;
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/Saans-Medium.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: SaansSemiMono;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/SaansSemiMono-Regular.woff2") format("woff2");
+}

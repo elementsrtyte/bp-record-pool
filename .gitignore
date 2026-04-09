@@ -1,0 +1,9 @@
+node_modules
+dist
+uploads
+.env
+.env.local
+*.log
+.DS_Store
+apps/api/drizzle/meta
+apps/api/drizzle/*.sql.journal

@@ -1,0 +1,107 @@
+# Blueprint Record Pool
+
+Monorepo: **public web** (`apps/web`), **admin** (`apps/admin`), and **API** (`apps/api`). Styling matches Blueprint **bp-invoicer** tokens via `packages/ui`.
+
+Local development uses the **[Supabase CLI](https://supabase.com/docs/guides/cli)** (`supabase start`) for Postgres, Auth, Studio, and JWT issuance—not a standalone `docker compose` Postgres unless you opt into that separately.
+
+## Prerequisites
+
+- Node 20+
+- [pnpm](https://pnpm.io) 9+
+- [Supabase CLI](https://supabase.com/docs/guides/cli/getting-started) (and Docker Desktop / Docker Engine for `supabase start`)
+
+## Quick start
+
+1. **Start Supabase** (from repo root):
+
+   ```bash
+   pnpm supabase:start
+   # or: supabase start
+   ```
+
+   This reads [`supabase/config.toml`](supabase/config.toml). **Studio** is typically [http://127.0.0.1:54323](http://127.0.0.1:54323).
+
+2. **Environment file at repo root** (recommended: **`.env.local`**). Copy values from the CLI:
+
+   ```bash
+   supabase status -o env
+   ```
+
+   Paste into `.env.local` as needed, or map manually:
+
+   - **DB URL** → `DATABASE_URL`
+   - **API URL** → `SUPABASE_URL`
+   - **Publishable** key → `SUPABASE_ANON_KEY` / `VITE_SUPABASE_ANON_KEY`
+   - **Secret** key → `SUPABASE_SERVICE_ROLE_KEY` (or paste the **`SERVICE_ROLE_KEY=`** line from `-o env` as-is — the API also reads **`SERVICE_ROLE_KEY`**)
+
+   **Required for the API (local):** set **`SUPABASE_JWT_SECRET`** to the **`JWT_SECRET`** line from `supabase status -o env`. Local GoTrue signs user access tokens with that value (HS256); the API checks Bearer tokens with it first.
+
+   **Optional:** **`SUPABASE_SERVICE_ROLE_KEY`** (or **`SERVICE_ROLE_KEY`**) from the same command — opaque `sb_secret_…` keys are normal. The API tries JWT verification first, then `getUser` with the service key.
+
+   The Vite apps only need the publishable URL + publishable key (never the secret key or JWT secret).
+
+   Optionally still use `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` if you prefer; those override the non-`VITE_` names.
+
+   Put API-only vars in the same root file or in **`apps/api/.env`**. For the frontends, `VITE_API_URL` defaults in code to `http://localhost:3000` if unset—you can add it explicitly:
+
+   ```bash
+   VITE_API_URL=http://localhost:3000
+   ```
+
+   Use **repo root** `.env.local` for secrets. If you copied [`.env.example`](.env.example) to `.env`, avoid **empty** `SUPABASE_SERVICE_ROLE_KEY=` there — empty values can block loading; prefer setting real values only in `.env.local`, or rely on the API’s load order (`.env.local` overrides `.env`).
+
+   See [`.env.example`](.env.example) for the full list.
+
+3. **Install dependencies** and **push the Drizzle schema** (app tables live in `public`; Auth already owns `auth.*`):
+
+   ```bash
+   pnpm install
+   pnpm db:push
+   ```
+
+4. **Admin access**: in root `.env.local`, set **`ADMIN_EMAIL`** to the address you use in Supabase Auth (e.g. `you@company.com`). Only that user can call **`/api/admin/*`** (uploads, admin release list). Matching is case-insensitive. If you leave **`ADMIN_EMAIL`** empty, the API falls back to **`profiles.role = 'admin'`** instead (you can set that in SQL or Studio).
+
+5. **Run the app stack**:
+
+   ```bash
+   pnpm dev
+   ```
+
+| URL | App |
+|-----|-----|
+| [http://localhost:5173](http://localhost:5173) | Public web |
+| [http://localhost:5174](http://localhost:5174) | Admin |
+| [http://localhost:3000](http://localhost:3000) | API |
+| [http://127.0.0.1:54323](http://127.0.0.1:54323) | Supabase Studio |
+
+### Useful Supabase scripts
+
+| Command | Description |
+|--------|--------------|
+| `pnpm supabase:start` | Start local Supabase (Docker) |
+| `pnpm supabase:stop` | Stop local stack |
+| `pnpm supabase:status` | Print URLs, keys, DB URL |
+
+### Schema note
+
+**Drizzle** is the source of truth for `profiles`, `subscriptions`, `releases`, and `tracks` (`pnpm db:push`). Use **`supabase/migrations`** only for extra SQL you want applied on `supabase db reset` (e.g. triggers on `auth.users`); the repo does not require that for the MVP.
+
+### Optional: docker-compose Postgres only
+
+[`docker-compose.yml`](docker-compose.yml) still provides a bare Postgres on **5433** if you ever want DB without the full Supabase stack. The default docs assume **Supabase CLI** on **54322** instead.
+
+## Stripe
+
+Set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` (recurring price), and `STRIPE_WEBHOOK_SECRET` for `POST /webhooks/stripe`.
+
+## Storage
+
+Without S3 env vars, uploads go to `apps/api/uploads` and are served from `GET /files/...`. Configure S3-compatible storage for production.
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | API + web + admin |
+| `pnpm build` | Build all packages |
+| `pnpm db:push` | Drizzle push to `DATABASE_URL` |
