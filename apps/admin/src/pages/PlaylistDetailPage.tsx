@@ -124,7 +124,7 @@ export function PlaylistDetailPage() {
         method: "POST",
         token,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, description: description.trim() || undefined }),
       });
       const j = (await r.json()) as { artworkUrl?: string; error?: string; detail?: string };
       if (!r.ok) {
@@ -216,11 +216,16 @@ export function PlaylistDetailPage() {
                 type="button"
                 disabled={saving || generatingArt || !title.trim()}
                 className="ui-control w-fit cursor-pointer border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-                title="Uses OpenAI Images (server-side). Set OPENAI_API_KEY on the API."
+                title="Uses playlist title + description (OpenAI). Set OPENAI_API_KEY on the API."
                 onClick={() => void generateArtwork()}
               >
                 {generatingArt ? "Generating…" : "Generate cover (OpenAI)"}
               </button>
+              <p className="max-w-md text-[11px] leading-snug text-muted-foreground">
+                Cover art uses your <strong className="font-medium text-foreground">title</strong> and{" "}
+                <strong className="font-medium text-foreground">description</strong> for a vibrant,
+                streaming-style image (Spotify-like gradients and abstract shapes; no text in the image).
+              </p>
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp"

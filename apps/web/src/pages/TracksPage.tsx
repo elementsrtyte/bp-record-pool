@@ -7,6 +7,8 @@ import { usePlayer } from "../components/PlayerContext";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 
+const PAGE_SIZE = 25;
+
 function matchesQuery(t: TrackListItem, q: string): boolean {
   if (!q.trim()) return true;
   const s = q.toLowerCase();
@@ -20,34 +22,66 @@ function matchesQuery(t: TrackListItem, q: string): boolean {
   );
 }
 
+type TracksListResponse = {
+  tracks: TrackListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export function TracksPage() {
   const { play } = usePlayer();
   const { query } = useShellSearch();
   const [items, setItems] = useState<TrackListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [genreFilter, setGenreFilter] = useState<string>("all");
 
   useEffect(() => {
+    setPage(1);
+  }, [query, genreFilter]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
+      setLoading(true);
+      setError(null);
       try {
-        const r = await fetch(`${import.meta.env.VITE_API_URL ?? "http://localhost:3000"}/api/tracks`);
+        const offset = (page - 1) * PAGE_SIZE;
+        const base = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+        const r = await fetch(`${base}/api/tracks?limit=${PAGE_SIZE}&offset=${offset}`);
         if (!r.ok) throw new Error(String(r.status));
-        const raw = (await r.json()) as TrackListItem[];
-        const data = raw.map((t) => ({
+        const body = (await r.json()) as TracksListResponse;
+        if (!Array.isArray(body.tracks)) throw new Error("invalid_response");
+        const data = body.tracks.map((t) => ({
           ...t,
           versions: Array.isArray(t.versions) ? t.versions : [],
           defaultVersionId: t.defaultVersionId ?? null,
         }));
-        if (!cancelled) setItems(data);
+        if (!cancelled) {
+          setItems(data);
+          setTotal(typeof body.total === "number" ? body.total : data.length);
+        }
       } catch {
-        if (!cancelled) setError("Could not load tracks.");
+        if (!cancelled) {
+          setError("Could not load tracks.");
+          setItems([]);
+          setTotal(0);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [page]);
 
   const genreOptions = useMemo(() => {
     const set = new Set<string>();
@@ -62,7 +96,7 @@ export function TracksPage() {
       items.filter(
         (t) =>
           matchesQuery(t, query) &&
-          (genreFilter === "all" || (t.genre?.trim() === genreFilter)),
+          (genreFilter === "all" || t.genre?.trim() === genreFilter),
       ),
     [items, query, genreFilter],
   );
@@ -71,6 +105,10 @@ export function TracksPage() {
     () => items.filter((t) => (t.versions?.length ?? 0) === 0).length,
     [items],
   );
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, total);
 
   const onPreview = useCallback(
     async (trackId: string, versionId: string | null, label: string) => {
@@ -154,12 +192,55 @@ export function TracksPage() {
         </div>
       ) : null}
 
-      <TrackTable items={filtered} onPreview={onPreview} onDownload={onDownload} />
+      {loading && items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <TrackTable items={filtered} onPreview={onPreview} onDownload={onDownload} />
+      )}
+
+      {total > 0 ? (
+        <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs tabular-nums text-muted-foreground">
+            {rangeStart === 0 ? (
+              "No tracks"
+            ) : (
+              <>
+                <span className="text-foreground">
+                  {rangeStart}–{rangeEnd}
+                </span>{" "}
+                of <span className="text-foreground">{total}</span>
+              </>
+            )}
+            {loading ? <span className="ml-2 italic">Loading…</span> : null}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={loading || page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="ui-control h-9 cursor-pointer px-3 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="min-w-[5rem] text-center text-xs tabular-nums text-muted-foreground">
+              Page {page} of {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={loading || page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="ui-control h-9 cursor-pointer px-3 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {filtered.length === 0 && items.length > 0 ? (
         <p className="text-sm text-muted-foreground">No tracks match your filters.</p>
       ) : null}
-      {items.length === 0 && !error ? (
+      {!loading && items.length === 0 && total === 0 ? (
         <p className="text-sm text-muted-foreground">No tracks yet.</p>
       ) : null}
     </div>

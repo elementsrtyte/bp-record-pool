@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { desc, eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { tracks, trackVersions } from "../db/schema.js";
 import { filesUrlPath, signedGetUrl } from "../lib/storage.js";
@@ -102,14 +102,29 @@ export const tracksRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/tracks", async (request) => {
-    const q = request.query as { limit?: string };
-    const limit = Math.min(Number(q.limit ?? 20), 50);
+    const q = request.query as { limit?: string; offset?: string };
+    const limitRaw = Number(q.limit ?? 25);
+    const offsetRaw = Number(q.offset ?? 0);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 25, 1), 100);
+    const offset = Math.max(Number.isFinite(offsetRaw) ? offsetRaw : 0, 0);
+
+    const [totalRow] = await db.select({ n: count() }).from(tracks);
+    const total = Number(totalRow?.n ?? 0);
+
     const rows = await db
       .select()
       .from(tracks)
       .orderBy(desc(tracks.createdAt))
-      .limit(limit);
-    return mapTracksToListItems(rows);
+      .limit(limit)
+      .offset(offset);
+
+    const trackList = await mapTracksToListItems(rows);
+    return {
+      tracks: trackList,
+      total,
+      limit,
+      offset,
+    };
   });
 
   app.get<{ Params: { id: string } }>("/api/tracks/:id", async (request, reply) => {

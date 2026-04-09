@@ -575,7 +575,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>("/playlists/:id/generate-artwork", async (request, reply) => {
     const { id } = request.params;
-    const body = request.body as { name?: string };
+    const body = request.body as { name?: string; description?: string };
     const [pl] = await db.select().from(playlists).where(eq(playlists.id, id)).limit(1);
     if (!pl) {
       reply.code(404);
@@ -587,10 +587,14 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       reply.code(400);
       return { error: "missing_name", need: "Set playlist title or pass { name } in JSON body." };
     }
+    const descriptionFromBody =
+      typeof body?.description === "string" ? body.description.trim() || null : undefined;
+    const description =
+      descriptionFromBody !== undefined ? descriptionFromBody : (pl.description?.trim() || null);
 
     let png: Buffer;
     try {
-      const out = await generatePlaylistCoverPng(name);
+      const out = await generatePlaylistCoverPng(name, description);
       png = out.buffer;
     } catch (e) {
       const msg = (e as Error).message;
