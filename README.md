@@ -52,12 +52,15 @@ Local development uses the **[Supabase CLI](https://supabase.com/docs/guides/cli
 
    See [`.env.example`](.env.example) for the full list.
 
-3. **Install dependencies** and **push the Drizzle schema** (app tables live in `public`; Auth already owns `auth.*`):
+3. **Install dependencies**, apply **SQL migrations**, then **push** any remaining Drizzle schema drift (app tables live in `public`; Auth already owns `auth.*`):
 
    ```bash
    pnpm install
+   pnpm db:migrate
    pnpm db:push
    ```
+
+   Migrations in [`apps/api/drizzle/`](apps/api/drizzle/) include splitting audio keys into `track_versions`. `db:migrate` is idempotent for already-applied tags; run it whenever you pull new migration files.
 
 4. **Admin access**: in root `.env.local`, set **`ADMIN_EMAIL`** to the address you use in Supabase Auth (e.g. `you@company.com`). Only that user can call **`/api/admin/*`** (uploads, admin release list). Matching is case-insensitive. If you leave **`ADMIN_EMAIL`** empty, the API falls back to **`profiles.role = 'admin'`** instead (you can set that in SQL or Studio).
 
@@ -81,10 +84,14 @@ Local development uses the **[Supabase CLI](https://supabase.com/docs/guides/cli
 | `pnpm supabase:start` | Start local Supabase (Docker) |
 | `pnpm supabase:stop` | Stop local stack |
 | `pnpm supabase:status` | Print URLs, keys, DB URL |
+| `pnpm db:migrate` | Run [`apps/api/drizzle`](apps/api/drizzle) SQL migrations (e.g. `track_versions` backfill) |
+| `pnpm migrate-track-versions` | Legacy TS helper; prefer `pnpm db:migrate` |
+| `pnpm reset-catalog -- --dry-run` | Show counts for tracks / versions / playlist links (no deletes) |
+| `pnpm reset-catalog -- --yes` | Delete all tracks (and related `track_versions` + `playlist_tracks`); playlists stay empty |
 
 ### Schema note
 
-**Drizzle** is the source of truth for `profiles`, `subscriptions`, `releases`, and `tracks` (`pnpm db:push`). Use **`supabase/migrations`** only for extra SQL you want applied on `supabase db reset` (e.g. triggers on `auth.users`); the repo does not require that for the MVP.
+**Drizzle** defines tables in code (`apps/api/src/db/schema.ts`). Use **`pnpm db:migrate`** for versioned SQL in **`apps/api/drizzle`** (data backfills, enum/table creation before column drops), and **`pnpm db:push`** to reconcile any remaining drift against that schema. Use **`supabase/migrations`** only for extra SQL you want applied on `supabase db reset` (e.g. triggers on `auth.users`); the repo does not require that for the MVP.
 
 ### Optional: docker-compose Postgres only
 

@@ -5,6 +5,7 @@ import { ensureProfile } from "../lib/profile.js";
 import { db } from "../db/client.js";
 import { subscriptions, tracks } from "../db/schema.js";
 import { signedGetUrl } from "../lib/storage.js";
+import { resolveVersionForTrack } from "../lib/trackVersions.js";
 
 function isActiveStatus(status: string | null | undefined) {
   if (!status) return false;
@@ -32,12 +33,22 @@ export const downloadsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const { trackId } = request.params;
+      const q = request.query as { versionId?: string; kind?: string };
+      const body = (request.body ?? {}) as { versionId?: string; kind?: string };
+      const versionId = body.versionId ?? q.versionId;
+      const kind = body.kind ?? q.kind;
+
       const [track] = await db.select().from(tracks).where(eq(tracks.id, trackId)).limit(1);
-      if (!track?.isDownloadable || !track.masterKey) {
+      if (!track?.isDownloadable) {
         reply.code(404);
         return { error: "not_found" };
       }
-      const url = await signedGetUrl(track.masterKey, 600);
+      const ver = await resolveVersionForTrack(trackId, { versionId, kind });
+      if (!ver?.masterKey) {
+        reply.code(404);
+        return { error: "not_found" };
+      }
+      const url = await signedGetUrl(ver.masterKey, 600);
       return { url, filename: `${track.title}.bin` };
     },
   );

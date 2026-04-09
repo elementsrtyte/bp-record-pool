@@ -3,6 +3,11 @@ import { asc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { playlists, playlistTracks, tracks } from "../db/schema.js";
 import { artworkUrlFromKey } from "./tracks.js";
+import {
+  defaultVersionIdFromList,
+  loadVersionsByTrackId,
+  toVersionSummaries,
+} from "../lib/trackVersions.js";
 
 export const playlistsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/playlists", async () => {
@@ -11,17 +16,25 @@ export const playlistsRoutes: FastifyPluginAsync = async (app) => {
         id: playlists.id,
         title: playlists.title,
         description: playlists.description,
+        artworkKey: playlists.artworkKey,
         createdAt: playlists.createdAt,
         trackCount: sql<number>`count(${playlistTracks.id})::int`,
       })
       .from(playlists)
       .leftJoin(playlistTracks, eq(playlistTracks.playlistId, playlists.id))
-      .groupBy(playlists.id)
+      .groupBy(
+        playlists.id,
+        playlists.title,
+        playlists.description,
+        playlists.artworkKey,
+        playlists.createdAt,
+      )
       .orderBy(playlists.createdAt);
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
       description: r.description,
+      artworkUrl: artworkUrlFromKey(r.artworkKey),
       trackCount: r.trackCount,
       createdAt: r.createdAt.toISOString(),
     }));
@@ -46,8 +59,7 @@ export const playlistsRoutes: FastifyPluginAsync = async (app) => {
         musicalKey: tracks.musicalKey,
         releaseDate: tracks.releaseDate,
         artworkKey: tracks.artworkKey,
-        previewKey: tracks.previewKey,
-        masterKey: tracks.masterKey,
+        isDownloadable: tracks.isDownloadable,
         createdAt: tracks.createdAt,
       })
       .from(playlistTracks)
@@ -55,24 +67,33 @@ export const playlistsRoutes: FastifyPluginAsync = async (app) => {
       .where(eq(playlistTracks.playlistId, id))
       .orderBy(asc(playlistTracks.position));
 
+    const byTrack = await loadVersionsByTrackId(items.map((t) => t.id));
+
     return {
       id: pl.id,
       title: pl.title,
       description: pl.description,
+      artworkUrl: artworkUrlFromKey(pl.artworkKey),
       trackCount: items.length,
       createdAt: pl.createdAt.toISOString(),
-      tracks: items.map((t) => ({
-        id: t.id,
-        title: t.title,
-        artist: t.artist,
-        genre: t.genre,
-        bpm: t.bpm,
-        musicalKey: t.musicalKey,
-        releaseDate: t.releaseDate.toISOString().slice(0, 10),
-        artworkUrl: artworkUrlFromKey(t.artworkKey),
-        previewable: Boolean(t.previewKey || t.masterKey),
-        createdAt: t.createdAt.toISOString(),
-      })),
+      tracks: items.map((t) => {
+        const vers = byTrack.get(t.id) ?? [];
+        const summaries = toVersionSummaries(vers, t.isDownloadable);
+        return {
+          id: t.id,
+          title: t.title,
+          artist: t.artist,
+          genre: t.genre,
+          bpm: t.bpm,
+          musicalKey: t.musicalKey,
+          releaseDate: t.releaseDate.toISOString().slice(0, 10),
+          artworkUrl: artworkUrlFromKey(t.artworkKey),
+          previewable: summaries.some((s) => s.previewable),
+          createdAt: t.createdAt.toISOString(),
+          versions: summaries,
+          defaultVersionId: defaultVersionIdFromList(vers),
+        };
+      }),
     };
   });
 };

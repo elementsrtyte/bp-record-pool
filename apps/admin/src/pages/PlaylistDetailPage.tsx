@@ -1,19 +1,40 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 
 type Track = { id: string; title: string; artist: string; position: number };
 type AllTrack = { id: string; title: string; artist: string; genre: string | null; releaseDate: string };
+type PlRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  artworkUrl: string | null;
+  createdAt: string;
+};
 
 export function PlaylistDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [artworkUrl, setArtworkUrl] = useState<string | null>(null);
+  const [artworkFile, setArtworkFile] = useState<File | null>(null);
+  const [removeArtwork, setRemoveArtwork] = useState(false);
+  const artworkPreviewUrl = useMemo(
+    () => (artworkFile ? URL.createObjectURL(artworkFile) : null),
+    [artworkFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (artworkPreviewUrl) URL.revokeObjectURL(artworkPreviewUrl);
+    };
+  }, [artworkPreviewUrl]);
   const [currentTracks, setCurrentTracks] = useState<Track[]>([]);
   const [allTracks, setAllTracks] = useState<AllTrack[]>([]);
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [generatingArt, setGeneratingArt] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   async function getToken() {
@@ -35,11 +56,14 @@ export function PlaylistDetailPage() {
       apiFetch(`/api/admin/tracks`, { token }),
     ]);
     if (plRes.ok) {
-      const playlists = (await plRes.json()) as { id: string; title: string; description: string | null }[];
+      const playlists = (await plRes.json()) as PlRow[];
       const pl = playlists.find((p) => p.id === id);
       if (pl) {
         setTitle(pl.title);
         setDescription(pl.description ?? "");
+        setArtworkUrl(pl.artworkUrl ?? null);
+        setArtworkFile(null);
+        setRemoveArtwork(false);
       }
     }
     if (tracksRes.ok) setCurrentTracks((await tracksRes.json()) as Track[]);
@@ -55,20 +79,69 @@ export function PlaylistDetailPage() {
     if (!token || !id) return;
     setSaving(true);
     setMessage(null);
-    await apiFetch(`/api/admin/playlists/${id}`, {
+    const form = new FormData();
+    form.append("title", title);
+    form.append("description", description || "");
+    if (removeArtwork) form.append("removeArtwork", "1");
+    if (artworkFile) form.append("artwork", artworkFile, artworkFile.name);
+    const patchRes = await apiFetch(`/api/admin/playlists/${id}`, {
       method: "PATCH",
       token,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, description: description || "" }),
+      body: form,
     });
-    await apiFetch(`/api/admin/playlists/${id}/tracks`, {
+    if (!patchRes.ok) {
+      setSaving(false);
+      setMessage(`Save failed (${patchRes.status}).`);
+      return;
+    }
+    const putRes = await apiFetch(`/api/admin/playlists/${id}/tracks`, {
       method: "PUT",
       token,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ trackIds: currentTracks.map((t) => t.id) }),
     });
     setSaving(false);
-    setMessage("Saved.");
+    if (!putRes.ok) {
+      setMessage(`Playlist saved but track order failed (${putRes.status}).`);
+      await load();
+      return;
+    }
+    navigate("/playlists");
+  }
+
+  async function generateArtwork() {
+    const token = await getToken();
+    if (!token || !id) return;
+    const name = title.trim();
+    if (!name) {
+      setMessage("Set a playlist title before generating cover art.");
+      return;
+    }
+    setGeneratingArt(true);
+    setMessage(null);
+    try {
+      const r = await apiFetch(`/api/admin/playlists/${id}/generate-artwork`, {
+        method: "POST",
+        token,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const j = (await r.json()) as { artworkUrl?: string; error?: string; detail?: string };
+      if (!r.ok) {
+        setMessage(j.detail ?? j.error ?? `Generate failed (${r.status})`);
+        return;
+      }
+      if (j.artworkUrl) {
+        setArtworkUrl(j.artworkUrl);
+        setArtworkFile(null);
+        setRemoveArtwork(false);
+        setMessage("Cover generated and stored. Save playlist if you changed title, tracks, or description.");
+      }
+    } catch (e) {
+      setMessage((e as Error).message);
+    } finally {
+      setGeneratingArt(false);
+    }
   }
 
   function addTrack(t: AllTrack) {
@@ -122,6 +195,58 @@ export function PlaylistDetailPage() {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Cover image</div>
+          <div className="flex flex-wrap items-start gap-4">
+            {artworkPreviewUrl ? (
+              <img
+                src={artworkPreviewUrl}
+                alt=""
+                className="h-24 w-24 rounded-md border border-border object-cover"
+              />
+            ) : artworkUrl && !removeArtwork ? (
+              <img src={artworkUrl} alt="" className="h-24 w-24 rounded-md border border-border object-cover" />
+            ) : (
+              <div className="flex h-24 w-24 items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
+                No image
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={saving || generatingArt || !title.trim()}
+                className="ui-control w-fit cursor-pointer border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
+                title="Uses OpenAI Images (server-side). Set OPENAI_API_KEY on the API."
+                onClick={() => void generateArtwork()}
+              >
+                {generatingArt ? "Generating…" : "Generate cover (OpenAI)"}
+              </button>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="max-w-xs text-xs file:mr-2 file:rounded file:border file:border-border file:bg-secondary file:px-2 file:py-1"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  setArtworkFile(f ?? null);
+                  if (f) setRemoveArtwork(false);
+                }}
+              />
+              {(artworkUrl || artworkFile) && !artworkFile ? (
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={removeArtwork}
+                    onChange={(e) => {
+                      setRemoveArtwork(e.target.checked);
+                      if (e.target.checked) setArtworkFile(null);
+                    }}
+                  />
+                  Remove cover on save
+                </label>
+              ) : null}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="space-y-2">

@@ -33,7 +33,12 @@ export function TracksPage() {
       try {
         const r = await fetch(`${import.meta.env.VITE_API_URL ?? "http://localhost:3000"}/api/tracks`);
         if (!r.ok) throw new Error(String(r.status));
-        const data = (await r.json()) as TrackListItem[];
+        const raw = (await r.json()) as TrackListItem[];
+        const data = raw.map((t) => ({
+          ...t,
+          versions: Array.isArray(t.versions) ? t.versions : [],
+          defaultVersionId: t.defaultVersionId ?? null,
+        }));
         if (!cancelled) setItems(data);
       } catch {
         if (!cancelled) setError("Could not load tracks.");
@@ -62,10 +67,19 @@ export function TracksPage() {
     [items, query, genreFilter],
   );
 
+  const tracksMissingVersions = useMemo(
+    () => items.filter((t) => (t.versions?.length ?? 0) === 0).length,
+    [items],
+  );
+
   const onPreview = useCallback(
-    async (trackId: string, label: string) => {
+    async (trackId: string, versionId: string | null, label: string) => {
+      const q =
+        versionId != null && versionId.length > 0
+          ? `?versionId=${encodeURIComponent(versionId)}`
+          : "";
       const r = await fetch(
-        `${import.meta.env.VITE_API_URL ?? "http://localhost:3000"}/api/tracks/${trackId}/preview-url`,
+        `${import.meta.env.VITE_API_URL ?? "http://localhost:3000"}/api/tracks/${trackId}/preview-url${q}`,
       );
       if (!r.ok) return;
       const j = (await r.json()) as { url: string };
@@ -74,14 +88,18 @@ export function TracksPage() {
     [play],
   );
 
-  const onDownload = useCallback(async (trackId: string) => {
+  const onDownload = useCallback(async (trackId: string, versionId: string | null) => {
     const { data: session } = await supabase.auth.getSession();
     const token = session.session?.access_token;
     if (!token) {
       window.location.href = "/account";
       return;
     }
-    const r = await apiFetch(`/api/downloads/${trackId}`, { method: "POST", token });
+    const q =
+      versionId != null && versionId.length > 0
+        ? `?versionId=${encodeURIComponent(versionId)}`
+        : "";
+    const r = await apiFetch(`/api/downloads/${trackId}${q}`, { method: "POST", token });
     if (r.status === 403) {
       alert("Active subscription required.");
       return;
@@ -118,6 +136,23 @@ export function TracksPage() {
           </label>
         </div>
       </div>
+
+      {tracksMissingVersions > 0 ? (
+        <div
+          className="rounded-lg border border-amber-500/35 bg-amber-500/[0.07] px-3 py-2 text-sm text-foreground dark:border-amber-400/40 dark:bg-amber-400/10"
+          role="status"
+        >
+          <strong className="tabular-nums">{tracksMissingVersions}</strong> track
+          {tracksMissingVersions === 1 ? "" : "s"} in this list have{" "}
+          <strong>no audio versions</strong> stored, so previews and downloads cannot run. This often happens if{" "}
+          <code className="rounded bg-muted px-1 py-px text-xs">track_versions</code> was never populated—for
+          example after <code className="rounded bg-muted px-1 py-px text-xs">db:push</code> removed{" "}
+          <code className="rounded bg-muted px-1 py-px text-xs">master_key</code> from{" "}
+          <code className="rounded bg-muted px-1 py-px text-xs">tracks</code> without running{" "}
+          <code className="rounded bg-muted px-1 py-px text-xs">pnpm migrate-track-versions</code> first. If the
+          old columns are already gone, restore the database from a backup or re-upload those tracks.
+        </div>
+      ) : null}
 
       <TrackTable items={filtered} onPreview={onPreview} onDownload={onDownload} />
 

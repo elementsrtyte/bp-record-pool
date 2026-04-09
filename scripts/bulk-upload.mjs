@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 
 /**
- * Bulk-upload MP3s to the Blueprint Record Pool API.
+ * Bulk-upload audio to the Blueprint Record Pool API.
  *
  * Usage:
- *   node scripts/bulk-upload.mjs <dir-of-mp3s> [--api URL] [--email EMAIL] [--password PASSWORD] [--dry-run] [--concurrency N]
+ *   node scripts/bulk-upload.mjs <dir> [--api URL] [--email EMAIL] [--password PASSWORD] [--dry-run] [--concurrency N]
  *
- * Reads ID3 tags from every .mp3 in the directory (non-recursive by default;
- * add --recursive to walk subdirs). Falls back to the filename when tags are
- * missing. Embedded cover art is sent as artwork.
+ * Reads common audio files in the directory (non-recursive by default;
+ * add --recursive to walk subdirs): mp3, wav, aiff/aif, flac, m4a, aac,
+ * ogg, opus, mp4, caf, wavpack (.wv). Tags come from metadata when present;
+ * otherwise the filename is used. Embedded cover art is sent as artwork.
+ * Version kind (Clean, Radio Edit, Instrumental, …) is inferred from the title and filename when possible.
+ * The API normalizes masters to MP3 (lossless → 320 kbps, etc.).
  *
  * Auth: logs in via Supabase email/password to get a JWT. You can also
  * set ADMIN_EMAIL / ADMIN_PASSWORD env vars instead of flags.
@@ -16,7 +19,7 @@
  * Requires: music-metadata (devDependency in monorepo root).
  */
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { parseBuffer } from "music-metadata";
@@ -38,13 +41,15 @@ if (flags.help || positionals.length === 0) {
   console.log(
     `Usage: node scripts/bulk-upload.mjs <dir> [--api URL] [--email E] [--password P] [--dry-run] [--recursive] [--concurrency N]
 
-Reads .mp3 files, extracts ID3 tags, and POSTs each as a track to the admin API.
+Reads standard audio files (mp3, wav, aiff, flac, m4a, aac, ogg, opus, mp4, caf, wv), extracts tags, and POSTs each to the admin API.
+Skips uploads when **title + artist** (normalized) already exists in the catalog or
+appears earlier in the same run.
 
 Options:
   --api          API base URL             (default: $VITE_API_URL or http://localhost:3000)
   --email        Supabase admin email     (default: $ADMIN_EMAIL)
   --password     Supabase admin password  (default: $ADMIN_PASSWORD)
-  --dry-run      Print what would upload without sending
+  --dry-run      Print what would upload without sending (add --email/--password to flag duplicates against the API)
   --recursive    Walk subdirectories
   --concurrency  Parallel uploads         (default: 3)
   --help         Show this message`,
@@ -58,14 +63,106 @@ const dryRun = flags["dry-run"];
 const recursive = flags.recursive;
 const concurrency = Math.max(1, Number(flags.concurrency) || 3);
 
-async function collectMp3s(root) {
+/** Extensions the script will upload; server-side ffmpeg must decode the format. */
+const AUDIO_FILE_RE =
+  /\.(mp3|wav|aif|aiff|flac|m4a|aac|ogg|opus|mp4|caf|wv)$/i;
+
+function mimeForAudioPath(fp) {
+  const ext = path.extname(fp).toLowerCase();
+  switch (ext) {
+    case ".mp3":
+      return "audio/mpeg";
+    case ".wav":
+      return "audio/wav";
+    case ".aif":
+    case ".aiff":
+      return "audio/aiff";
+    case ".flac":
+      return "audio/flac";
+    case ".m4a":
+    case ".mp4":
+      return "audio/mp4";
+    case ".aac":
+      return "audio/aac";
+    case ".ogg":
+      return "audio/ogg";
+    case ".opus":
+      return "audio/opus";
+    case ".caf":
+      return "audio/x-caf";
+    case ".wv":
+      return "audio/wavpack";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+/**
+ * Keep in sync with `inferTrackVersionKindFromTitle` in packages/shared/src/index.ts
+ * (title + filename heuristics for Clean / Radio Edit / Instrumental / …).
+ */
+function inferTrackVersionKindFromTitle(title, filenameHint) {
+  const stem = (() => {
+    if (!filenameHint) return "";
+    const norm = String(filenameHint).replace(/\\/g, "/");
+    const base = norm.slice(norm.lastIndexOf("/") + 1);
+    const dot = base.lastIndexOf(".");
+    return dot > 0 ? base.slice(0, dot) : base;
+  })();
+  const blob = [title ?? "", stem].filter((s) => String(s).trim().length > 0).join("\n");
+
+  const matchParenBlob = (s) => {
+    const t = s.toLowerCase().normalize("NFKC");
+    if (/\b(a\s*cappella|acapella)\b/.test(t)) return "acapella";
+    if (/\b(instrumental)\b/.test(t) || /\binst\.?\b/.test(t)) return "instrumental";
+    if (/\b(extended|ext\.?)\b/.test(t)) return "extended";
+    if (/\b(radio)\b/.test(t)) return "radio";
+    if (/\b(clean)\b/.test(t)) return "clean";
+    if (/\b(dirty|explicit)\b/.test(t)) return "dirty";
+    if (/\b(intro)\b/.test(t)) return "intro";
+    return null;
+  };
+
+  for (const m of blob.matchAll(/\(([^)]*)\)|\[([^\]]*)\]/g)) {
+    const inner = (m[1] ?? m[2] ?? "").trim();
+    if (!inner) continue;
+    const k = matchParenBlob(inner);
+    if (k) return k;
+  }
+
+  const t = blob.toLowerCase().normalize("NFKC");
+  if (/\b(a\s*cappella|acapella)\b/.test(t)) return "acapella";
+  if (/\b(instrumental)\b/.test(t) || /\binst\.?\b/.test(t)) return "instrumental";
+  if (/\bextended(\s+(mix|version|edit))?\b/.test(t) || /\bext\.\s*(mix|version)?\b/.test(t)) {
+    return "extended";
+  }
+  if (/\b(radio\s+(edit|mix|cut|version)|radio\s*edit)\b/.test(t)) return "radio";
+  if (/\bclean\s+(version|edit|mix|v)\b/.test(t) || /\s-\s*clean\s*$/i.test(blob)) return "clean";
+  if (/\b(dirty\s+(version|edit|mix)?|explicit|parental)\b/.test(t)) return "dirty";
+  if (/\bintro\s+(edit|version|mix|only)\b/.test(t)) return "intro";
+
+  if (stem) {
+    const slug = stem.toLowerCase().normalize("NFKC").replace(/[_-]+/g, " ");
+    if (/\b(a\s*cappella|acapella)\b/.test(slug)) return "acapella";
+    if (/\b(instrumental|inst)\b/.test(slug)) return "instrumental";
+    if (/\b(extended|ext)\b/.test(slug)) return "extended";
+    if (/\b(clean)\b/.test(slug)) return "clean";
+    if (/\b(dirty|explicit)\b/.test(slug)) return "dirty";
+    if (/\b(intro)\b/.test(slug)) return "intro";
+    if (/\b(radio)\b/.test(slug) && /\b(edit|mix|cut)\b/.test(slug)) return "radio";
+  }
+
+  return "standard";
+}
+
+async function collectAudioFiles(root) {
   const results = [];
   const entries = await readdir(root, { withFileTypes: true });
   for (const e of entries) {
     const full = path.join(root, e.name);
     if (e.isDirectory() && recursive) {
-      results.push(...(await collectMp3s(full)));
-    } else if (e.isFile() && /\.mp3$/i.test(e.name)) {
+      results.push(...(await collectAudioFiles(full)));
+    } else if (e.isFile() && AUDIO_FILE_RE.test(e.name)) {
       results.push(full);
     }
   }
@@ -76,11 +173,68 @@ function titleFromFilename(fp) {
   return path.basename(fp, path.extname(fp)).replace(/[-_]+/g, " ").trim();
 }
 
+/** Same normalization for API titles and local tags — case/whitespace insensitive. */
+function trackDedupeKey(title, artist) {
+  const norm = (s) =>
+    String(s ?? "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase()
+      .normalize("NFKC");
+  return `${norm(title)}||${norm(artist)}`;
+}
+
+async function fetchExistingDedupeKeys(token) {
+  const pageSize = 500;
+  let offset = 0;
+  const keys = new Set();
+  while (true) {
+    const url = new URL(`${apiBase}/api/admin/tracks`);
+    url.searchParams.set("limit", String(pageSize));
+    url.searchParams.set("offset", String(offset));
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Failed to list tracks (${r.status}): ${text}`);
+    }
+    const rows = await r.json();
+    if (!Array.isArray(rows) || rows.length === 0) break;
+    for (const row of rows) {
+      keys.add(trackDedupeKey(row.title, row.artist));
+    }
+    if (rows.length < pageSize) break;
+    offset += pageSize;
+  }
+  return keys;
+}
+
+/**
+ * @param {Set<string>} initialKeys — e.g. from API
+ * @returns {{ toUpload: typeof metas, skipped: Array<{ meta: (typeof metas)[0], reason: string }> }}
+ */
+function partitionByDedupe(metas, initialKeys) {
+  const reserved = new Set(initialKeys);
+  const toUpload = [];
+  /** @type {Array<{ meta: (typeof metas)[0], reason: string }>} */
+  const skipped = [];
+  for (const m of metas) {
+    const key = trackDedupeKey(m.title, m.artist);
+    if (reserved.has(key)) {
+      skipped.push({ meta: m, reason: "duplicate" });
+      continue;
+    }
+    reserved.add(key);
+    toUpload.push(m);
+  }
+  return { toUpload, skipped };
+}
+
 async function extractMeta(fp) {
   const buf = await readFile(fp);
+  const mimeType = mimeForAudioPath(fp);
   let meta;
   try {
-    meta = await parseBuffer(buf, { mimeType: "audio/mpeg" });
+    meta = await parseBuffer(buf, { mimeType });
   } catch {
     meta = null;
   }
@@ -132,9 +286,11 @@ async function upload(token, meta) {
   form.append("artist", meta.artist);
   form.append("releaseDate", meta.releaseDate);
   if (meta.genre) form.append("genre", meta.genre);
+  form.append("kind", inferTrackVersionKindFromTitle(meta.title, meta.fp));
 
   const ext = path.extname(meta.fp) || ".mp3";
-  form.append("master", new Blob([meta.buf], { type: "audio/mpeg" }), `master${ext}`);
+  const masterMime = mimeForAudioPath(meta.fp);
+  form.append("master", new Blob([meta.buf], { type: masterMime }), `master${ext}`);
 
   if (meta.artworkBuf) {
     const artExt = meta.artworkMime === "image/png" ? ".png" : ".jpg";
@@ -166,8 +322,8 @@ async function runBatch(items, fn) {
 
 // ── main ──
 
-console.log(`Scanning ${dir} for .mp3 files…`);
-const files = await collectMp3s(dir);
+console.log(`Scanning ${dir} for audio files…`);
+const files = await collectAudioFiles(dir);
 console.log(`Found ${files.length} file(s).`);
 
 if (files.length === 0) process.exit(0);
@@ -177,10 +333,30 @@ const metas = await Promise.all(files.map(extractMeta));
 
 if (dryRun) {
   console.log("\n── DRY RUN ──\n");
-  for (const m of metas) {
-    console.log(`  ${m.title}  —  ${m.artist}  [${m.genre || "no genre"}]  ${m.releaseDate}  artwork:${m.artworkBuf ? "yes" : "no"}  ${path.basename(m.fp)}`);
+  let existingKeys = new Set();
+  if (flags.email && flags.password) {
+    console.log(`Logging in as ${flags.email} (checking duplicates against API)…`);
+    try {
+      const token = await login(flags.email, flags.password);
+      existingKeys = await fetchExistingDedupeKeys(token);
+      console.log(`Found ${existingKeys.size} unique title+artist pair(s) already in the catalog.\n`);
+    } catch (err) {
+      console.error(`Could not load existing tracks: ${err.message}`);
+      process.exit(1);
+    }
   }
-  console.log(`\n${metas.length} track(s) would be uploaded.`);
+  const { toUpload, skipped } = partitionByDedupe(metas, existingKeys);
+  for (const m of metas) {
+    const isDup = skipped.some((s) => s.meta === m);
+    const tag = isDup ? "[duplicate — skip]" : "[upload]";
+    console.log(
+      `  ${tag}  ${m.title}  —  ${m.artist}  [${m.genre || "no genre"}]  ${m.releaseDate}  artwork:${m.artworkBuf ? "yes" : "no"}  ${path.basename(m.fp)}`,
+    );
+  }
+  if (!flags.email || !flags.password) {
+    console.log(`\n${metas.length} file(s). Sign in with --email/--password to see which would be skipped as duplicates.`);
+  }
+  console.log(`\nWould upload ${toUpload.length} track(s); would skip ${skipped.length} duplicate(s).`);
   process.exit(0);
 }
 
@@ -191,13 +367,29 @@ if (!flags.email || !flags.password) {
 
 console.log(`Logging in as ${flags.email}…`);
 const token = await login(flags.email, flags.password);
-console.log("Authenticated.\n");
+console.log("Authenticated.");
+
+console.log("Loading existing tracks for duplicate check…");
+const existingKeys = await fetchExistingDedupeKeys(token);
+const { toUpload, skipped } = partitionByDedupe(metas, existingKeys);
+if (skipped.length > 0) {
+  console.log(`\nSkipping ${skipped.length} duplicate(s) (already in catalog or repeated in this folder):`);
+  for (const { meta: m } of skipped) {
+    console.log(`  — ${m.title} — ${m.artist}  (${path.basename(m.fp)})`);
+  }
+  console.log("");
+}
+
+if (toUpload.length === 0) {
+  console.log("Nothing new to upload.");
+  process.exit(0);
+}
 
 let ok = 0;
 let fail = 0;
 
-await runBatch(metas, async (m, i) => {
-  const label = `[${i + 1}/${metas.length}]`;
+await runBatch(toUpload, async (m, i) => {
+  const label = `[${i + 1}/${toUpload.length}]`;
   try {
     const res = await upload(token, m);
     if (res.ok) {
@@ -213,5 +405,6 @@ await runBatch(metas, async (m, i) => {
   }
 });
 
-console.log(`\nDone: ${ok} uploaded, ${fail} failed out of ${metas.length}.`);
+const skippedCount = skipped.length;
+console.log(`\nDone: ${ok} uploaded, ${fail} failed, ${skippedCount} skipped as duplicate(s), out of ${metas.length} file(s).`);
 process.exit(fail > 0 ? 1 : 0);

@@ -8,11 +8,13 @@
     "db:generate": "pnpm --filter @bp/api db:generate",
     "db:migrate": "pnpm --filter @bp/api db:migrate",
     "db:push": "pnpm --filter @bp/api db:push",
+    "migrate-track-versions": "pnpm --filter @bp/api migrate-track-versions",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:status": "supabase status",
     "bulk-upload": "node scripts/bulk-upload.mjs",
-    "backfill-track-analysis": "pnpm --filter @bp/api backfill-track-analysis"
+    "backfill-track-analysis": "pnpm --filter @bp/api backfill-track-analysis",
+    "reset-catalog": "pnpm --filter @bp/api run reset-catalog --"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

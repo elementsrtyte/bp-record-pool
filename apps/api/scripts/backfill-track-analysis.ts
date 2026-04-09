@@ -24,13 +24,13 @@
 import path from "node:path";
 import { parseArgs } from "node:util";
 
-import { desc, eq, isNull, or } from "drizzle-orm";
+import { asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 
 import "../src/env.js";
 import { analyzeMasterAudio } from "../src/lib/audioAnalysis.js";
 import { readObject } from "../src/lib/storage.js";
 import { db } from "../src/db/client.js";
-import { tracks } from "../src/db/schema.js";
+import { trackVersions, tracks } from "../src/db/schema.js";
 
 const { values: flags } = parseArgs({
   options: {
@@ -58,7 +58,6 @@ const concurrency = Math.max(1, Math.min(8, parseInt(flags.concurrency, 10) || 1
 
 const selectCols = {
   id: tracks.id,
-  masterKey: tracks.masterKey,
   bpm: tracks.bpm,
   musicalKey: tracks.musicalKey,
 };
@@ -70,39 +69,61 @@ type Row = {
   musicalKey: string | null;
 };
 
+async function firstMasterKeyByTrackIds(ids: string[]): Promise<Map<string, string>> {
+  const m = new Map<string, string>();
+  if (ids.length === 0) return m;
+  const rows = await db
+    .select({ trackId: trackVersions.trackId, masterKey: trackVersions.masterKey })
+    .from(trackVersions)
+    .where(inArray(trackVersions.trackId, ids))
+    .orderBy(asc(trackVersions.createdAt));
+  for (const r of rows) {
+    if (!m.has(r.trackId)) m.set(r.trackId, r.masterKey);
+  }
+  return m;
+}
+
+async function attachMasterKeys(base: { id: string; bpm: number | null; musicalKey: string | null }[]): Promise<Row[]> {
+  const masterByTrack = await firstMasterKeyByTrackIds(base.map((b) => b.id));
+  return base
+    .map((t) => ({
+      id: t.id,
+      bpm: t.bpm,
+      musicalKey: t.musicalKey,
+      masterKey: masterByTrack.get(t.id) ?? "",
+    }))
+    .filter((t) => t.masterKey.length > 0);
+}
+
 async function loadTargets(): Promise<Row[]> {
   if (singleId) {
-    return db
-      .select(selectCols)
-      .from(tracks)
-      .where(eq(tracks.id, singleId))
-      .limit(1);
+    const [row] = await db.select(selectCols).from(tracks).where(eq(tracks.id, singleId)).limit(1);
+    if (!row) return [];
+    return attachMasterKeys([row]);
   }
 
   if (processAll) {
-    if (limitN != null) {
-      return db
-        .select(selectCols)
-        .from(tracks)
-        .orderBy(desc(tracks.createdAt))
-        .limit(limitN);
-    }
-    return db.select(selectCols).from(tracks).orderBy(desc(tracks.createdAt));
+    const base =
+      limitN != null
+        ? await db.select(selectCols).from(tracks).orderBy(desc(tracks.createdAt)).limit(limitN)
+        : await db.select(selectCols).from(tracks).orderBy(desc(tracks.createdAt));
+    return attachMasterKeys(base);
   }
 
-  if (limitN != null) {
-    return db
-      .select(selectCols)
-      .from(tracks)
-      .where(or(isNull(tracks.bpm), isNull(tracks.musicalKey)))
-      .orderBy(desc(tracks.createdAt))
-      .limit(limitN);
-  }
-  return db
-    .select(selectCols)
-    .from(tracks)
-    .where(or(isNull(tracks.bpm), isNull(tracks.musicalKey)))
-    .orderBy(desc(tracks.createdAt));
+  const base =
+    limitN != null
+      ? await db
+          .select(selectCols)
+          .from(tracks)
+          .where(or(isNull(tracks.bpm), isNull(tracks.musicalKey)))
+          .orderBy(desc(tracks.createdAt))
+          .limit(limitN)
+      : await db
+          .select(selectCols)
+          .from(tracks)
+          .where(or(isNull(tracks.bpm), isNull(tracks.musicalKey)))
+          .orderBy(desc(tracks.createdAt));
+  return attachMasterKeys(base);
 }
 
 async function runOne(row: Row): Promise<{ ok: boolean; msg: string }> {

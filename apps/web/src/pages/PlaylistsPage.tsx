@@ -50,9 +50,17 @@ export function PlaylistsPage() {
               to={`/playlists/${p.id}`}
               className="group flex items-center gap-4 px-4 py-3 transition hover:bg-muted/30"
             >
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded border border-border bg-muted text-lg text-muted-foreground group-hover:border-primary/40">
-                ♪
-              </div>
+              {p.artworkUrl ? (
+                <img
+                  src={p.artworkUrl}
+                  alt=""
+                  className="h-11 w-11 shrink-0 rounded border border-border object-cover group-hover:border-primary/40"
+                />
+              ) : (
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded border border-border bg-muted text-lg text-muted-foreground group-hover:border-primary/40">
+                  ♪
+                </div>
+              )}
               <div className="min-w-0 flex-1 space-y-0.5">
                 <div className="truncate font-medium text-foreground group-hover:text-primary">{p.title}</div>
                 {p.description ? (

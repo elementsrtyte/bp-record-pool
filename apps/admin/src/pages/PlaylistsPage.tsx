@@ -3,7 +3,13 @@ import { Link } from "react-router-dom";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 
-type Row = { id: string; title: string; description: string | null; createdAt: string };
+type Row = {
+  id: string;
+  title: string;
+  description: string | null;
+  artworkUrl: string | null;
+  createdAt: string;
+};
 
 export function PlaylistsPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -92,7 +98,22 @@ export function PlaylistsPage() {
       <ul className="divide-y divide-border rounded-lg border border-border bg-card text-sm">
         {rows.map((p) => (
           <li key={p.id} className="flex items-center justify-between gap-2 px-3 py-2">
-            <Link to={`/playlists/${p.id}`} className="font-medium hover:text-primary">{p.title}</Link>
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              {p.artworkUrl ? (
+                <img
+                  src={p.artworkUrl}
+                  alt=""
+                  className="h-10 w-10 shrink-0 rounded object-cover"
+                />
+              ) : (
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-dashed border-border text-xs text-muted-foreground">
+                  ♪
+                </div>
+              )}
+              <Link to={`/playlists/${p.id}`} className="min-w-0 truncate font-medium hover:text-primary">
+                {p.title}
+              </Link>
+            </div>
             <button
               type="button"
               className="ui-control shrink-0 cursor-pointer text-xs text-destructive hover:opacity-90"

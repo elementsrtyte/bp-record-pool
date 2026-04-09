@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { TRACK_VERSION_KINDS, trackVersionDisplayLabel } from "@bp/shared";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 
@@ -141,16 +142,29 @@ export function UploadPage() {
           <input name="genre" className="ui-control w-full" defaultValue={d?.genre} />
         </label>
         <label className="block space-y-1">
+          <span>Version kind</span>
+          <select name="kind" className="ui-control w-full" defaultValue="standard">
+            {TRACK_VERSION_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {trackVersionDisplayLabel(k)}
+              </option>
+            ))}
+          </select>
+          <span className="block text-xs text-muted-foreground">
+            Leave as <strong>Standard</strong> to auto-detect from the title or file name (e.g. “(Clean)”, “Radio
+            Edit”, “Instrumental” in tags or pool-style names). Pick another kind here to force it.
+          </span>
+        </label>
+        <label className="block space-y-1">
           <span>Artwork (jpg/png)</span>
           <input name="artwork" type="file" accept="image/*" className="text-sm" />
         </label>
         <label className="block space-y-1">
-          <span>Master audio (mp3)</span>
+          <span>Master audio</span>
           <input name="master" type="file" accept="audio/*" required className="text-sm" />
-        </label>
-        <label className="block space-y-1">
-          <span>Preview audio (optional mp3)</span>
-          <input name="preview" type="file" accept="audio/*" className="text-sm" />
+          <span className="block text-xs text-muted-foreground">
+            A 60-second MP3 preview is generated automatically from the start of the master.
+          </span>
         </label>
         <button
           type="submit"
