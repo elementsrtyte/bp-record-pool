@@ -72,7 +72,7 @@ export function PlaylistPage() {
       );
       if (!r.ok) return;
       const j = (await r.json()) as { url: string };
-      play(label, j.url);
+      play(label, j.url, trackId, versionId);
     },
     [play],
   );

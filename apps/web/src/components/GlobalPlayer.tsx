@@ -9,23 +9,23 @@ function formatTime(s: number): string {
 }
 
 export function GlobalPlayer() {
-  const { title, url, stop } = usePlayer();
+  const { title, url, stop, isPlaying, setIsPlaying, registerPlayPause } = usePlayer();
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
-  const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
   const destroy = useCallback(() => {
     wsRef.current?.destroy();
     wsRef.current = null;
-    setPlaying(false);
+    setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
-  }, []);
+  }, [setIsPlaying]);
 
   useEffect(() => {
     if (!url || !containerRef.current) {
+      registerPlayPause(null);
       destroy();
       return;
     }
@@ -40,31 +40,36 @@ export function GlobalPlayer() {
       barGap: 1,
       barRadius: 2,
       cursorWidth: 0,
-      waveColor: "var(--muted-foreground)",
-      progressColor: "var(--primary)",
+      waveColor: "#c8c8c8",
+      progressColor: "#ea580c",
       normalize: true,
       dragToSeek: true,
       hideScrollbar: true,
       autoplay: true,
     });
 
+    registerPlayPause(() => {
+      ws.playPause();
+    });
+
     ws.on("ready", () => {
       setDuration(ws.getDuration());
-      setPlaying(true);
+      setIsPlaying(true);
     });
 
     ws.on("timeupdate", (t) => setCurrentTime(t));
-    ws.on("play", () => setPlaying(true));
-    ws.on("pause", () => setPlaying(false));
-    ws.on("finish", () => setPlaying(false));
+    ws.on("play", () => setIsPlaying(true));
+    ws.on("pause", () => setIsPlaying(false));
+    ws.on("finish", () => setIsPlaying(false));
 
     wsRef.current = ws;
 
     return () => {
+      registerPlayPause(null);
       ws.destroy();
       wsRef.current = null;
     };
-  }, [url]);
+  }, [url, destroy, registerPlayPause, setIsPlaying]);
 
   function togglePlay() {
     wsRef.current?.playPause();
@@ -79,9 +84,9 @@ export function GlobalPlayer() {
           type="button"
           onClick={togglePlay}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs hover:bg-muted"
-          aria-label={playing ? "Pause" : "Play"}
+          aria-label={isPlaying ? "Pause" : "Play"}
         >
-          {playing ? "\u23F8" : "\u25B6"}
+          {isPlaying ? "\u23F8" : "\u25B6"}
         </button>
 
         <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
