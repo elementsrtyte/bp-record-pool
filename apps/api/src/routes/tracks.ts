@@ -12,6 +12,56 @@ export function artworkUrlFromKey(key: string | null): string | null {
 }
 
 export const tracksRoutes: FastifyPluginAsync = async (app) => {
+  /** Old web bundles and bookmarks still call these; same data as /api/tracks, response shape matches the pre–track-only API. */
+  app.get("/api/releases", async (request) => {
+    const q = request.query as { limit?: string };
+    const limit = Math.min(Number(q.limit ?? 20), 50);
+    const rows = await db
+      .select()
+      .from(tracks)
+      .orderBy(desc(tracks.createdAt))
+      .limit(limit);
+    return rows.map((t) => ({
+      id: t.id,
+      title: t.title,
+      artist: t.artist,
+      label: null as string | null,
+      releaseDate: t.releaseDate.toISOString().slice(0, 10),
+      genre: t.genre,
+      artworkUrl: artworkUrlFromKey(t.artworkKey),
+      previewTrackId: t.previewKey || t.masterKey ? t.id : null,
+      createdAt: t.createdAt.toISOString(),
+    }));
+  });
+
+  app.get<{ Params: { id: string } }>("/api/releases/:id", async (request, reply) => {
+    const { id } = request.params;
+    const [row] = await db.select().from(tracks).where(eq(tracks.id, id)).limit(1);
+    if (!row) {
+      reply.code(404);
+      return { error: "not_found" };
+    }
+    return {
+      id: row.id,
+      title: row.title,
+      artist: row.artist,
+      label: null,
+      releaseDate: row.releaseDate.toISOString().slice(0, 10),
+      genre: row.genre,
+      artworkUrl: artworkUrlFromKey(row.artworkKey),
+      createdAt: row.createdAt.toISOString(),
+      tracks: [
+        {
+          id: row.id,
+          title: row.title,
+          trackNumber: 1 as number | null,
+          durationSeconds: null as number | null,
+          hasPreview: Boolean(row.previewKey || row.masterKey),
+        },
+      ],
+    };
+  });
+
   app.get("/api/tracks", async (request) => {
     const q = request.query as { limit?: string };
     const limit = Math.min(Number(q.limit ?? 20), 50);

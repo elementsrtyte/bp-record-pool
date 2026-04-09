@@ -1,20 +1,27 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TrackListItem } from "@bp/shared";
+import { TrackTable } from "../components/TrackTable";
+import { useShellSearch } from "../components/ShellSearchContext";
 import { usePlayer } from "../components/PlayerContext";
+import { apiFetch } from "../lib/api";
+import { supabase } from "../lib/supabase";
+
+function matchesQuery(t: TrackListItem, q: string): boolean {
+  if (!q.trim()) return true;
+  const s = q.toLowerCase();
+  return (
+    t.title.toLowerCase().includes(s) ||
+    t.artist.toLowerCase().includes(s) ||
+    (t.genre?.toLowerCase().includes(s) ?? false)
+  );
+}
 
 export function TracksPage() {
   const { play } = usePlayer();
+  const { query } = useShellSearch();
   const [items, setItems] = useState<TrackListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  async function preview(trackId: string, label: string) {
-    const r = await fetch(
-      `${import.meta.env.VITE_API_URL ?? "http://localhost:3000"}/api/tracks/${trackId}/preview-url`,
-    );
-    if (!r.ok) return;
-    const j = (await r.json()) as { url: string };
-    play(label, j.url);
-  }
+  const [genreFilter, setGenreFilter] = useState<string>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -33,44 +40,86 @@ export function TracksPage() {
     };
   }, []);
 
+  const genreOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of items) {
+      if (t.genre?.trim()) set.add(t.genre.trim());
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [items]);
+
+  const filtered = useMemo(
+    () =>
+      items.filter(
+        (t) =>
+          matchesQuery(t, query) &&
+          (genreFilter === "all" || (t.genre?.trim() === genreFilter)),
+      ),
+    [items, query, genreFilter],
+  );
+
+  const onPreview = useCallback(
+    async (trackId: string, label: string) => {
+      const r = await fetch(
+        `${import.meta.env.VITE_API_URL ?? "http://localhost:3000"}/api/tracks/${trackId}/preview-url`,
+      );
+      if (!r.ok) return;
+      const j = (await r.json()) as { url: string };
+      play(label, j.url);
+    },
+    [play],
+  );
+
+  const onDownload = useCallback(async (trackId: string) => {
+    const { data: session } = await supabase.auth.getSession();
+    const token = session.session?.access_token;
+    if (!token) {
+      window.location.href = "/account";
+      return;
+    }
+    const r = await apiFetch(`/api/downloads/${trackId}`, { method: "POST", token });
+    if (r.status === 403) {
+      alert("Active subscription required.");
+      return;
+    }
+    if (!r.ok) return;
+    const j = (await r.json()) as { url: string };
+    window.open(j.url, "_blank");
+  }, []);
+
   if (error) return <p className="text-destructive">{error}</p>;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-balance">New tracks</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Latest additions to the pool.</p>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">New tracks</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Latest additions to the pool.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="hidden sm:inline">Genre</span>
+            <select
+              className="ui-control h-9 min-h-9 py-0 text-xs"
+              value={genreFilter}
+              onChange={(e) => setGenreFilter(e.target.value)}
+            >
+              <option value="all">All genres</option>
+              {genreOptions.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
-      <ul className="divide-y divide-border rounded-lg border border-border bg-card">
-        {items.map((t) => (
-          <li key={t.id} className="flex items-center gap-2 px-4 py-3">
-            {t.previewable ? (
-              <button
-                type="button"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs hover:bg-muted"
-                onClick={() => preview(t.id, `${t.title} — ${t.artist}`)}
-                aria-label={`Preview ${t.title}`}
-              >
-                &#9654;
-              </button>
-            ) : (
-              <div className="h-8 w-8 shrink-0" />
-            )}
-            <div className="min-w-0 flex-1 space-y-0.5">
-              <div className="truncate text-sm font-medium">{t.title}</div>
-              <div className="truncate text-xs text-muted-foreground">{t.artist}</div>
-            </div>
-            {t.genre ? (
-              <span className="hidden shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground sm:inline">
-                {t.genre}
-              </span>
-            ) : null}
-            <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:inline">
-              {t.releaseDate}
-            </span>
-          </li>
-        ))}
-      </ul>
+
+      <TrackTable items={filtered} onPreview={onPreview} onDownload={onDownload} />
+
+      {filtered.length === 0 && items.length > 0 ? (
+        <p className="text-sm text-muted-foreground">No tracks match your filters.</p>
+      ) : null}
       {items.length === 0 && !error ? (
         <p className="text-sm text-muted-foreground">No tracks yet.</p>
       ) : null}

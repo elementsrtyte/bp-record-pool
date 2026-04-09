@@ -73,8 +73,8 @@ export function GlobalPlayer() {
   if (!url) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card px-4 py-3 shadow-md">
-      <div className="mx-auto flex max-w-6xl items-center gap-3">
+    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card px-3 py-3 shadow-md md:pl-[var(--pool-sidebar-w)]">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 md:px-4">
         <button
           type="button"
           onClick={togglePlay}
