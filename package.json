@@ -11,7 +11,8 @@
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:status": "supabase status",
-    "bulk-upload": "node scripts/bulk-upload.mjs"
+    "bulk-upload": "node scripts/bulk-upload.mjs",
+    "backfill-track-analysis": "pnpm --filter @bp/api backfill-track-analysis"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

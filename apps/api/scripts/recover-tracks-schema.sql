@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS playlists (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS bpm integer;
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS musical_key text;
+
 CREATE TABLE IF NOT EXISTS playlist_tracks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   playlist_id uuid NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,

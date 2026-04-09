@@ -1,4 +1,4 @@
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   DeleteObjectCommand,
@@ -58,6 +58,21 @@ export async function putObject(key: string, body: Buffer, contentType: string):
   const filePath = path.join(localRoot, key);
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, body);
+}
+
+/** Read object bytes from S3 or local disk (same layout as `putObject`). */
+export async function readObject(key: string): Promise<Buffer> {
+  const k = key.trim();
+  if (!k) throw new Error("empty key");
+  const client = s3();
+  if (client && bucket) {
+    const out = await client.send(new GetObjectCommand({ Bucket: bucket, Key: k }));
+    const raw = await out.Body?.transformToByteArray();
+    if (!raw?.length) throw new Error(`empty or missing object: ${k}`);
+    return Buffer.from(raw);
+  }
+  const filePath = path.join(localRoot, k);
+  return readFile(filePath);
 }
 
 export async function deleteObject(key: string | null | undefined): Promise<void> {

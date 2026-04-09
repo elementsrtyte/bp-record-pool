@@ -7,6 +7,7 @@ import { isAdminUser } from "../lib/admin-auth.js";
 import { ensureProfile } from "../lib/profile.js";
 import { db } from "../db/client.js";
 import { tracks, playlists, playlistTracks } from "../db/schema.js";
+import { analyzeMasterAudio } from "../lib/audioAnalysis.js";
 import { deleteObject, putObject } from "../lib/storage.js";
 
 function keyFor(prefix: string, filename: string, fallbackExt: string) {
@@ -41,6 +42,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       title: t.title,
       artist: t.artist,
       genre: t.genre,
+      bpm: t.bpm,
+      musicalKey: t.musicalKey,
       releaseDate: t.releaseDate.toISOString().slice(0, 10),
       createdAt: t.createdAt.toISOString(),
     }));
@@ -112,12 +115,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       await putObject(previewKey, previewBuf, "audio/mpeg");
     }
 
+    const { bpm: analyzedBpm, musicalKey: analyzedKey } = await analyzeMasterAudio(masterBuf, masterName);
+
     const [track] = await db
       .insert(tracks)
       .values({
         title,
         artist,
         genre: genre || null,
+        bpm: analyzedBpm,
+        musicalKey: analyzedKey,
         releaseDate: rd,
         artworkKey,
         previewKey,

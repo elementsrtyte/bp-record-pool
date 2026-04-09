@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { musicalKeyToCamelot } from "./camelot.js";
+
 // ── Tracks ──
 
 export const trackListItemSchema = z.object({
@@ -7,6 +9,8 @@ export const trackListItemSchema = z.object({
   title: z.string(),
   artist: z.string(),
   genre: z.string().nullable(),
+  bpm: z.number().int().nullable(),
+  musicalKey: z.string().nullable(),
   releaseDate: z.string(),
   artworkUrl: z.string().nullable(),
   previewable: z.boolean(),

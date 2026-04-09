@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TrackListItem } from "@bp/shared";
+import { musicalKeyToCamelot } from "@bp/shared";
 import { TrackTable } from "../components/TrackTable";
 import { useShellSearch } from "../components/ShellSearchContext";
 import { usePlayer } from "../components/PlayerContext";
@@ -12,7 +13,10 @@ function matchesQuery(t: TrackListItem, q: string): boolean {
   return (
     t.title.toLowerCase().includes(s) ||
     t.artist.toLowerCase().includes(s) ||
-    (t.genre?.toLowerCase().includes(s) ?? false)
+    (t.genre?.toLowerCase().includes(s) ?? false) ||
+    (t.musicalKey?.toLowerCase().includes(s) ?? false) ||
+    (musicalKeyToCamelot(t.musicalKey)?.toLowerCase().includes(s) ?? false) ||
+    (t.bpm != null && String(t.bpm).includes(s))
   );
 }
 

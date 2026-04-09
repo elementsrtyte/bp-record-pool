@@ -37,6 +37,10 @@ export const tracks = pgTable("tracks", {
   title: text("title").notNull(),
   artist: text("artist").notNull(),
   genre: text("genre"),
+  /** Whole BPM when known (ID3 or estimated). */
+  bpm: integer("bpm"),
+  /** e.g. `A Min`, `F# Maj`, or raw tag string */
+  musicalKey: text("musical_key"),
   releaseDate: timestamp("release_date", { mode: "date" }).notNull(),
   artworkKey: text("artwork_key"),
   previewKey: text("preview_key"),

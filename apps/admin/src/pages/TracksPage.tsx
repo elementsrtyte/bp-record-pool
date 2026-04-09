@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { musicalKeyToCamelot } from "@bp/shared";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 
@@ -8,6 +9,8 @@ type Row = {
   artist: string;
   releaseDate: string;
   genre: string | null;
+  bpm: number | null;
+  musicalKey: string | null;
   createdAt: string;
 };
 
@@ -91,13 +94,19 @@ export function TracksPage() {
         </button>
       </div>
       <ul className="divide-y divide-border rounded-lg border border-border bg-card text-sm">
-        {rows.map((r) => (
+        {rows.map((r) => {
+          const camelot = musicalKeyToCamelot(r.musicalKey);
+          const keyBit =
+            camelot != null ? ` · ${camelot}` : r.musicalKey ? ` · ${r.musicalKey}` : "";
+          return (
           <li key={r.id} className="flex flex-wrap items-start justify-between gap-2 px-3 py-2">
             <div>
               <div className="font-medium">{r.title}</div>
-              <div className="text-muted-foreground">
+              <div className="text-muted-foreground" title={r.musicalKey ?? undefined}>
                 {r.artist} · {r.releaseDate}
                 {r.genre ? ` · ${r.genre}` : ""}
+                {r.bpm != null ? ` · ${r.bpm} BPM` : ""}
+                {keyBit}
               </div>
             </div>
             <button
@@ -109,7 +118,8 @@ export function TracksPage() {
               {deletingId === r.id ? "Deleting…" : "Delete"}
             </button>
           </li>
-        ))}
+          );
+        })}
       </ul>
       {rows.length === 0 && !error ? (
         <p className="text-sm text-muted-foreground">No tracks yet. Upload one.</p>
