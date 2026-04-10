@@ -510,7 +510,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       return {
         error: "stem_separation_disabled",
         detail:
-          "Set STEM_SEPARATION_ENABLED or SPLEETER_ENABLED=true and install audio-separator (see README).",
+          "Set STEM_SEPARATION_ENABLED=true and install audio-separator (see README).",
       };
     }
     const { id: trackId } = request.params;

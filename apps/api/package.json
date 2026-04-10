@@ -13,7 +13,8 @@
     "db:push": "drizzle-kit push",
     "migrate-track-versions": "tsx scripts/migrate-track-versions.ts",
     "reset-catalog": "tsx scripts/reset-catalog.ts",
-    "backfill-track-analysis": "tsx scripts/backfill-track-analysis.ts"
+    "backfill-track-analysis": "tsx scripts/backfill-track-analysis.ts",
+    "backfill-work-kind": "tsx scripts/backfill-work-kind.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.758.0",

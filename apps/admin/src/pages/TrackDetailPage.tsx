@@ -199,7 +199,7 @@ export function TrackDetailPage() {
     setStemJob(null);
     if (r.status === 503) {
       setError(
-        "Stem separation is not enabled on the API (set STEM_SEPARATION_ENABLED or SPLEETER_ENABLED and install python-audio-separator).",
+        "Stem separation is not enabled on the API (set STEM_SEPARATION_ENABLED and install python-audio-separator).",
       );
       return;
     }
@@ -437,8 +437,7 @@ export function TrackDetailPage() {
             >
               python-audio-separator
             </a>{" "}
-            (requires <code className="rounded bg-muted px-0.5">STEM_SEPARATION_ENABLED</code> or{" "}
-            <code className="rounded bg-muted px-0.5">SPLEETER_ENABLED</code> on the API). Uses the earliest full mix
+            (requires <code className="rounded bg-muted px-0.5">STEM_SEPARATION_ENABLED</code> on the API). Uses the earliest full mix
             version when available; otherwise the first version with a master. This can take several minutes.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">

@@ -41,6 +41,12 @@ export const TRACK_REMIX_TITLE_REGEXES: readonly RegExp[] = [
   /\bedit\b/i,
   /\bre-?drum\b/i,
   /\bredrum\b/i,
+  /\bbootleg\b/i,
+  /\bflip\b/i,
+  /\bmash[\s-]*up\b/i,
+  /\bre-?work\b/i,
+  /\bvip\b/i,
+  /\brefix\b/i,
 ];
 
 /** True if the track title matches any {@link TRACK_REMIX_TITLE_REGEXES} pattern. */

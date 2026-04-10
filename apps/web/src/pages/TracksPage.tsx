@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TrackListItem } from "@bp/shared";
 import { musicalKeyToCamelot, trackWorkKindDisplayLabel } from "@bp/shared";
+import { BpmRangeSlider } from "../components/BpmRangeSlider";
 import { TrackTable } from "../components/TrackTable";
 import { useShellSearch } from "../components/ShellSearchContext";
 import { usePlayer } from "../components/PlayerContext";
@@ -8,6 +9,8 @@ import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 
 const PAGE_SIZE = 25;
+const BPM_RANGE_MIN = 60;
+const BPM_RANGE_MAX = 200;
 
 function matchesQuery(t: TrackListItem, q: string): boolean {
   if (!q.trim()) return true;
@@ -40,11 +43,15 @@ export function TracksPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [genreFilter, setGenreFilter] = useState<string>("all");
+  const [workKindFilter, setWorkKindFilter] = useState<"all" | "original" | "remix">("all");
+  const [bpmSliderLow, setBpmSliderLow] = useState(BPM_RANGE_MIN);
+  const [bpmSliderHigh, setBpmSliderHigh] = useState(BPM_RANGE_MAX);
 
   useEffect(() => {
     setPage(1);
-  }, [query, genreFilter]);
+  }, [query, genreFilter, workKindFilter, bpmSliderLow, bpmSliderHigh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +61,13 @@ export function TracksPage() {
       try {
         const offset = (page - 1) * PAGE_SIZE;
         const base = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
-        const r = await fetch(`${base}/api/tracks?limit=${PAGE_SIZE}&offset=${offset}`);
+        const params = new URLSearchParams();
+        params.set("limit", String(PAGE_SIZE));
+        params.set("offset", String(offset));
+        if (workKindFilter !== "all") params.set("workKind", workKindFilter);
+        if (bpmSliderLow > BPM_RANGE_MIN) params.set("bpmMin", String(bpmSliderLow));
+        if (bpmSliderHigh < BPM_RANGE_MAX) params.set("bpmMax", String(bpmSliderHigh));
+        const r = await fetch(`${base}/api/tracks?${params.toString()}`);
         if (!r.ok) throw new Error(String(r.status));
         const body = (await r.json()) as TracksListResponse;
         if (!Array.isArray(body.tracks)) throw new Error("invalid_response");
@@ -81,7 +94,7 @@ export function TracksPage() {
     return () => {
       cancelled = true;
     };
-  }, [page]);
+  }, [page, workKindFilter, bpmSliderLow, bpmSliderHigh]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -113,6 +126,18 @@ export function TracksPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const rangeEnd = Math.min(page * PAGE_SIZE, total);
+
+  const bpmFilterActive = bpmSliderLow > BPM_RANGE_MIN || bpmSliderHigh < BPM_RANGE_MAX;
+
+  const hasServerFilters = workKindFilter !== "all" || bpmFilterActive;
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (workKindFilter !== "all") n += 1;
+    if (bpmFilterActive) n += 1;
+    if (genreFilter !== "all") n += 1;
+    return n;
+  }, [workKindFilter, bpmFilterActive, genreFilter]);
 
   const onPreview = useCallback(
     async (trackId: string, versionId: string | null, label: string) => {
@@ -155,29 +180,101 @@ export function TracksPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">New tracks</h1>
           <p className="mt-1 text-sm text-muted-foreground">Latest additions to the pool.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="hidden sm:inline">Genre</span>
-            <select
-              className="ui-control h-9 min-h-9 py-0 text-xs"
-              value={genreFilter}
-              onChange={(e) => setGenreFilter(e.target.value)}
-            >
-              <option value="all">All genres</option>
-              {genreOptions.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+          <button
+            type="button"
+            id="tracks-filters-trigger"
+            aria-expanded={filtersOpen}
+            aria-controls="tracks-filters-panel"
+            onClick={() => setFiltersOpen((o) => !o)}
+            className="ui-control inline-flex h-9 cursor-pointer items-center justify-center gap-2 px-3 text-xs font-medium"
+          >
+            <span>Filters</span>
+            {activeFilterCount > 0 ? (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/15 px-1.5 text-[10px] font-semibold tabular-nums text-primary">
+                {activeFilterCount}
+              </span>
+            ) : null}
+          </button>
         </div>
       </div>
+
+      {filtersOpen ? (
+        <div
+          id="tracks-filters-panel"
+          role="region"
+          aria-labelledby="tracks-filters-trigger"
+          className="rounded-lg border border-border bg-card p-4 shadow-sm"
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+              <span>Type</span>
+              <select
+                className="ui-control h-9 min-h-9 py-0 text-xs"
+                value={workKindFilter}
+                onChange={(e) => setWorkKindFilter(e.target.value as "all" | "original" | "remix")}
+              >
+                <option value="all">Original & remix</option>
+                <option value="original">Original only</option>
+                <option value="remix">Remix only</option>
+              </select>
+            </label>
+            <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 lg:col-span-2">
+              <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
+                <span>BPM range</span>
+                <span className="tabular-nums text-foreground">
+                  {bpmSliderLow}–{bpmSliderHigh}
+                  {!bpmFilterActive ? (
+                    <span className="ml-1.5 font-normal text-muted-foreground">(all)</span>
+                  ) : null}
+                </span>
+              </div>
+              <BpmRangeSlider
+                min={BPM_RANGE_MIN}
+                max={BPM_RANGE_MAX}
+                low={bpmSliderLow}
+                high={bpmSliderHigh}
+                onChange={(lo, hi) => {
+                  setBpmSliderLow(lo);
+                  setBpmSliderHigh(hi);
+                }}
+              />
+              {bpmFilterActive ? (
+                <button
+                  type="button"
+                  className="self-start text-[10px] text-primary underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setBpmSliderLow(BPM_RANGE_MIN);
+                    setBpmSliderHigh(BPM_RANGE_MAX);
+                  }}
+                >
+                  Reset BPM range
+                </button>
+              ) : null}
+            </div>
+            <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground sm:col-span-2 lg:col-span-1">
+              <span>Genre</span>
+              <select
+                className="ui-control h-9 min-h-9 py-0 text-xs"
+                value={genreFilter}
+                onChange={(e) => setGenreFilter(e.target.value)}
+              >
+                <option value="all">All genres</option>
+                {genreOptions.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      ) : null}
 
       {tracksMissingVersions > 0 ? (
         <div
@@ -245,7 +342,9 @@ export function TracksPage() {
         <p className="text-sm text-muted-foreground">No tracks match your filters.</p>
       ) : null}
       {!loading && items.length === 0 && total === 0 ? (
-        <p className="text-sm text-muted-foreground">No tracks yet.</p>
+        <p className="text-sm text-muted-foreground">
+          {hasServerFilters ? "No tracks match your filters." : "No tracks yet."}
+        </p>
       ) : null}
     </div>
   );

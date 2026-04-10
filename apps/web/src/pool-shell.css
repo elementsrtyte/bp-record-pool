@@ -25,3 +25,66 @@ html.pool-app.dark {
 html.pool-app {
   --pool-sidebar-w: 14rem;
 }
+
+/* Dual BPM range — transparent tracks, visible thumbs only */
+html.pool-app input.bpm-range-slider-thumb {
+  pointer-events: none;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+html.pool-app input.bpm-range-slider-thumb::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  background: transparent;
+  border: none;
+}
+
+html.pool-app input.bpm-range-slider-thumb::-webkit-slider-thumb {
+  pointer-events: auto;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin-top: -4px;
+  border-radius: 9999px;
+  background: var(--primary);
+  border: 2px solid var(--card);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+  cursor: grab;
+}
+
+html.pool-app input.bpm-range-slider-thumb:active::-webkit-slider-thumb {
+  cursor: grabbing;
+}
+
+html.pool-app input.bpm-range-slider-thumb::-moz-range-track {
+  width: 100%;
+  height: 6px;
+  background: transparent;
+  border: none;
+}
+
+html.pool-app input.bpm-range-slider-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--primary);
+  border: 2px solid var(--card);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 35%);
+  cursor: grab;
+}
+
+html.pool-app input.bpm-range-slider-thumb:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+html.pool-app input.bpm-range-slider-thumb:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

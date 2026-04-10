@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNotNull, lte, type SQL } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { tracks, trackVersions } from "../db/schema.js";
 import { filesUrlPath, signedGetUrl } from "../lib/storage.js";
@@ -104,21 +104,51 @@ export const tracksRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/tracks", async (request) => {
-    const q = request.query as { limit?: string; offset?: string };
+    const q = request.query as {
+      limit?: string;
+      offset?: string;
+      workKind?: string;
+      bpmMin?: string;
+      bpmMax?: string;
+    };
     const limitRaw = Number(q.limit ?? 25);
     const offsetRaw = Number(q.offset ?? 0);
     const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 25, 1), 100);
     const offset = Math.max(Number.isFinite(offsetRaw) ? offsetRaw : 0, 0);
 
-    const [totalRow] = await db.select({ n: count() }).from(tracks);
+    const conditions: SQL[] = [];
+
+    const work = q.workKind?.trim().toLowerCase();
+    if (work === "original" || work === "remix") {
+      conditions.push(eq(tracks.workKind, work));
+    }
+
+    const bpmMinN = q.bpmMin != null && q.bpmMin.trim() !== "" ? Number(q.bpmMin) : NaN;
+    const bpmMaxN = q.bpmMax != null && q.bpmMax.trim() !== "" ? Number(q.bpmMax) : NaN;
+    const hasBpmMin = Number.isFinite(bpmMinN);
+    const hasBpmMax = Number.isFinite(bpmMaxN);
+    if (hasBpmMin || hasBpmMax) {
+      conditions.push(isNotNull(tracks.bpm));
+      if (hasBpmMin) conditions.push(gte(tracks.bpm, Math.round(bpmMinN)));
+      if (hasBpmMax) conditions.push(lte(tracks.bpm, Math.round(bpmMaxN)));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [totalRow] = whereClause
+      ? await db.select({ n: count() }).from(tracks).where(whereClause)
+      : await db.select({ n: count() }).from(tracks);
     const total = Number(totalRow?.n ?? 0);
 
-    const rows = await db
-      .select()
-      .from(tracks)
-      .orderBy(desc(tracks.createdAt))
-      .limit(limit)
-      .offset(offset);
+    const rows = whereClause
+      ? await db
+          .select()
+          .from(tracks)
+          .where(whereClause)
+          .orderBy(desc(tracks.createdAt))
+          .limit(limit)
+          .offset(offset)
+      : await db.select().from(tracks).orderBy(desc(tracks.createdAt)).limit(limit).offset(offset);
 
     const trackList = await mapTracksToListItems(rows);
     return {

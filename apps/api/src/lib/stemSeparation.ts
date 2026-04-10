@@ -24,27 +24,20 @@ function truthyEnv(raw: string | undefined): boolean {
 /**
  * When true, original uploads spawn a background job using [python-audio-separator](https://github.com/nomadkaraoke/python-audio-separator) (2-stem: vocals + instrumental).
  *
- * Any of these may be set: `STEM_SEPARATION_ENABLED`, `AUDIO_SEPARATOR_ENABLED`, or legacy `SPLEETER_ENABLED`.
+ * Set `STEM_SEPARATION_ENABLED` or `AUDIO_SEPARATOR_ENABLED`.
  */
 export function isStemSeparationEnabled(): boolean {
   return (
-    truthyEnv(process.env.STEM_SEPARATION_ENABLED) ||
-    truthyEnv(process.env.AUDIO_SEPARATOR_ENABLED) ||
-    truthyEnv(process.env.SPLEETER_ENABLED)
+    truthyEnv(process.env.STEM_SEPARATION_ENABLED) || truthyEnv(process.env.AUDIO_SEPARATOR_ENABLED)
   );
 }
 
 function stemSeparationPython(): string | undefined {
-  return (
-    process.env.AUDIO_SEPARATOR_PYTHON?.trim() ||
-    process.env.SPLEETER_PYTHON?.trim() ||
-    undefined
-  );
+  return process.env.AUDIO_SEPARATOR_PYTHON?.trim() || undefined;
 }
 
 function stemSeparationTimeoutMs(): number {
-  const raw =
-    process.env.STEM_SEPARATION_TIMEOUT_MS?.trim() || process.env.SPLEETER_TIMEOUT_MS?.trim();
+  const raw = process.env.STEM_SEPARATION_TIMEOUT_MS?.trim();
   const n = raw ? parseInt(raw, 10) : NaN;
   if (Number.isFinite(n) && n >= 60_000) return n;
   return 25 * 60 * 1000;

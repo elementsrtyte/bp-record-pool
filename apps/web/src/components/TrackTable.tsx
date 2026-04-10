@@ -99,7 +99,7 @@ function TrackRow({
                       {trackWorkKindDisplayLabel("remix")}
                     </span>
                   ) : null}
-                  {singleVersion ? (
+                  {singleVersion && singleVersion.kind !== "standard" ? (
                     <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                       {trackVersionDisplayLabel(singleVersion.kind)}
                     </span>
