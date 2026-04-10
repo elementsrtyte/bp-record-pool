@@ -26,8 +26,28 @@ const webOrigin = process.env.PUBLIC_WEB_URL ?? "http://localhost:5173";
 const adminOrigin = process.env.PUBLIC_ADMIN_URL ?? "http://localhost:5174";
 const extra = process.env.CORS_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
 
+/** Browsers treat localhost vs 127.0.0.1 as different origins — allow both for local dev. */
+function localOriginVariants(origin: string): string[] {
+  try {
+    const u = new URL(origin);
+    const out = [origin.replace(/\/$/, "")];
+    if (u.hostname === "localhost") {
+      u.hostname = "127.0.0.1";
+      out.push(u.toString().replace(/\/$/, ""));
+    } else if (u.hostname === "127.0.0.1") {
+      u.hostname = "localhost";
+      out.push(u.toString().replace(/\/$/, ""));
+    }
+    return out;
+  } catch {
+    return [origin];
+  }
+}
+
+const corsOrigins = [...new Set([...localOriginVariants(webOrigin), ...localOriginVariants(adminOrigin), ...extra])];
+
 await app.register(cors, {
-  origin: [webOrigin, adminOrigin, ...extra],
+  origin: corsOrigins,
   credentials: true,
 });
 
@@ -39,7 +59,8 @@ await app.register(staticFiles, {
   root: path.resolve(uploadRoot),
   prefix: "/files/",
   decorateReply: false,
-  acceptRanges: false,
+  /** Required for HTML audio/video to load MP3 via Range requests from another origin (admin/web dev servers). */
+  acceptRanges: true,
 });
 
 await app.register(stripeWebhookRoutes, { prefix: "/webhooks" });

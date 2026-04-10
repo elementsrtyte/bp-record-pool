@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { TRACK_VERSION_KINDS, trackVersionDisplayLabel } from "@bp/shared";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  TRACK_VERSION_KINDS,
+  TRACK_WORK_KINDS,
+  trackVersionDisplayLabel,
+  trackWorkKindDisplayLabel,
+} from "@bp/shared";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 
@@ -51,6 +56,7 @@ export function UploadPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0);
+  const [lastUploadedId, setLastUploadedId] = useState<string | null>(null);
   const d = devDefaults;
   const defaultTitle = useMemo(() => (d ? randomTitle() : undefined), [formKey, d]);
 
@@ -58,6 +64,7 @@ export function UploadPage() {
     e.preventDefault();
     setBusy(true);
     setMessage(null);
+    setLastUploadedId(null);
     const { data: session } = await supabase.auth.getSession();
     const token = session.session?.access_token;
     if (!token) {
@@ -95,6 +102,8 @@ export function UploadPage() {
       setMessage(j.error ?? "Upload failed.");
       return;
     }
+    const created = (await r.json().catch(() => ({}))) as { id?: string };
+    setLastUploadedId(typeof created.id === "string" ? created.id : null);
     setMessage("Uploaded.");
     setFormKey((k) => k + 1);
   }
@@ -140,6 +149,22 @@ export function UploadPage() {
         <label className="block space-y-1">
           <span>Genre</span>
           <input name="genre" className="ui-control w-full" defaultValue={d?.genre} />
+        </label>
+        <label className="block space-y-1">
+          <span>Track type</span>
+          <select name="workKind" className="ui-control w-full" defaultValue="original">
+            {TRACK_WORK_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {trackWorkKindDisplayLabel(k)}
+              </option>
+            ))}
+          </select>
+          <span className="block text-xs text-muted-foreground">
+            Original production vs. remix—separate from version tags (clean, radio, etc.). The server will set{" "}
+            <strong>Remix</strong> automatically if the title contains words like <em>remix</em>, <em>edit</em>, or{" "}
+            <em>re-drum</em> / <em>redrum</em>. If stem separation is enabled on the API, <strong>Original</strong> uploads
+            also get instrumental and acapella in the background.
+          </span>
         </label>
         <label className="block space-y-1">
           <span>Version kind</span>

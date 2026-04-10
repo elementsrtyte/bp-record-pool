@@ -286,6 +286,7 @@ async function upload(token, meta) {
   form.append("artist", meta.artist);
   form.append("releaseDate", meta.releaseDate);
   if (meta.genre) form.append("genre", meta.genre);
+  form.append("workKind", meta.workKind ?? "original");
   form.append("kind", inferTrackVersionKindFromTitle(meta.title, meta.fp));
 
   const ext = path.extname(meta.fp) || ".mp3";

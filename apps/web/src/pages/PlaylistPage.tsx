@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import type { PlaylistDetail, TrackListItem } from "@bp/shared";
-import { musicalKeyToCamelot } from "@bp/shared";
+import { musicalKeyToCamelot, trackWorkKindDisplayLabel } from "@bp/shared";
 import { TrackTable } from "../components/TrackTable";
 import { useShellSearch } from "../components/ShellSearchContext";
 import { apiFetch } from "../lib/api";
@@ -11,13 +11,16 @@ import { usePlayer } from "../components/PlayerContext";
 function matchesQuery(t: TrackListItem, q: string): boolean {
   if (!q.trim()) return true;
   const s = q.toLowerCase();
+  const workLabel = trackWorkKindDisplayLabel(t.workKind).toLowerCase();
   return (
     t.title.toLowerCase().includes(s) ||
     t.artist.toLowerCase().includes(s) ||
     (t.genre?.toLowerCase().includes(s) ?? false) ||
     (t.musicalKey?.toLowerCase().includes(s) ?? false) ||
     (musicalKeyToCamelot(t.musicalKey)?.toLowerCase().includes(s) ?? false) ||
-    (t.bpm != null && String(t.bpm).includes(s))
+    (t.bpm != null && String(t.bpm).includes(s)) ||
+    workLabel.includes(s) ||
+    t.workKind.includes(s)
   );
 }
 
@@ -42,6 +45,7 @@ export function PlaylistPage() {
           ...raw,
           tracks: raw.tracks.map((t) => ({
             ...t,
+            workKind: t.workKind ?? "original",
             versions: Array.isArray(t.versions) ? t.versions : [],
             defaultVersionId: t.defaultVersionId ?? null,
           })),

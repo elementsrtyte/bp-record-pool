@@ -20,6 +20,8 @@ export const trackVersionKindEnum = pgEnum("track_version_kind", [
   "acapella",
 ]);
 
+export const trackWorkKindEnum = pgEnum("track_work_kind", ["original", "remix"]);
+
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   email: text("email").notNull(),
@@ -54,6 +56,8 @@ export const tracks = pgTable("tracks", {
   bpm: integer("bpm"),
   /** e.g. `A Min`, `F# Maj`, or raw tag string */
   musicalKey: text("musical_key"),
+  /** Original vs. remix — uploader-controlled; default original. */
+  workKind: trackWorkKindEnum("work_kind").notNull().default("original"),
   releaseDate: timestamp("release_date", { mode: "date" }).notNull(),
   artworkKey: text("artwork_key"),
   isDownloadable: boolean("is_downloadable").notNull().default(true),

@@ -1,5 +1,5 @@
 import type { TrackListItem, TrackVersionSummary } from "@bp/shared";
-import { musicalKeyToCamelot, trackVersionDisplayLabel } from "@bp/shared";
+import { musicalKeyToCamelot, trackVersionDisplayLabel, trackWorkKindDisplayLabel } from "@bp/shared";
 import { usePlayer } from "./PlayerContext";
 
 export type TrackTableProps = {
@@ -94,6 +94,11 @@ function TrackRow({
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="min-w-0 truncate font-medium text-foreground">{t.title}</span>
+                  {t.workKind === "remix" ? (
+                    <span className="shrink-0 rounded border border-primary/35 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      {trackWorkKindDisplayLabel("remix")}
+                    </span>
+                  ) : null}
                   {singleVersion ? (
                     <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                       {trackVersionDisplayLabel(singleVersion.kind)}

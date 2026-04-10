@@ -105,6 +105,19 @@ Set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` (recurring price), and `STRIPE_WEBHOO
 
 Without S3 env vars, uploads go to `apps/api/uploads` and are served from `GET /files/...`. Configure S3-compatible storage for production.
 
+## Optional: Stem separation (instrumental + acapella)
+
+For **original** uploads (`work_kind = original`), the API can run **[python-audio-separator](https://github.com/nomadkaraoke/python-audio-separator)** 2-stem separation in the background after the main master is stored, then create **instrumental** and **acapella** `track_versions` (skipping any kind that already exists or duplicates the primary upload).
+
+1. Install per [their README](https://github.com/nomadkaraoke/python-audio-separator): e.g. `pip install "audio-separator[cpu]"` (or `[gpu]` where appropriate), plus **`ffmpeg`** on the host (`brew install ffmpeg` on macOS). Models download on first run.
+2. In **`apps/api`** env (or repo root `.env.local`), set:
+   - **`STEM_SEPARATION_ENABLED=true`** (or legacy **`SPLEETER_ENABLED=true`**)
+   - **`AUDIO_SEPARATOR_PYTHON=/path/to/venv/bin/python`** (or legacy **`SPLEETER_PYTHON`**) so the API runs the `audio-separator` CLI from that venv’s `bin` / `Scripts`.
+   - Optionally **`STEM_SEPARATION_TIMEOUT_MS`** or **`SPLEETER_TIMEOUT_MS`** (default 25 minutes per job).
+   - Optionally **`AUDIO_SEPARATOR_MODEL`** (`-m` model filename), **`AUDIO_SEPARATOR_MODEL_DIR`**, **`AUDIO_SEPARATOR_CHUNK_DURATION`** (seconds; helps long files / memory).
+
+Jobs run **asynchronously** after `POST /api/admin/tracks` returns; check API logs for `stem_separation_*`. Remix uploads are not processed.
+
 ## Scripts
 
 | Command | Description |

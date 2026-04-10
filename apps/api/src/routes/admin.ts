@@ -13,10 +13,16 @@ import {
 } from "../lib/trackVersions.js";
 import { analyzeMasterAudio } from "../lib/audioAnalysis.js";
 import { extractMp3PreviewClip, normalizeTrackAudioForStorage } from "../lib/audioEncode.js";
-import { deleteObject, putObject } from "../lib/storage.js";
+import { deleteObject, putObject, readObject } from "../lib/storage.js";
 import { artworkUrlFromKey } from "./tracks.js";
 import { generatePlaylistCoverPng } from "../lib/openaiPlaylistArt.js";
-import { inferTrackVersionKindFromTitle } from "@bp/shared";
+import { inferTrackVersionKindFromTitle, resolveTrackWorkKind } from "@bp/shared";
+import {
+  isStemSeparationEnabled,
+  runOriginalTrackStemSeparation,
+  runStemSeparationFromBuffer,
+  type StemKind,
+} from "../lib/stemSeparation.js";
 
 function keyFor(prefix: string, filename: string, fallbackExt: string) {
   const ext = path.extname(filename) || fallbackExt;
@@ -62,6 +68,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         genre: t.genre,
         bpm: t.bpm,
         musicalKey: t.musicalKey,
+        workKind: t.workKind,
         releaseDate: t.releaseDate.toISOString().slice(0, 10),
         isDownloadable: t.isDownloadable,
         createdAt: t.createdAt.toISOString(),
@@ -93,6 +100,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       genre: t.genre,
       bpm: t.bpm,
       musicalKey: t.musicalKey,
+      workKind: t.workKind,
       releaseDate: t.releaseDate.toISOString().slice(0, 10),
       isDownloadable: t.isDownloadable,
       artworkUrl: artworkUrlFromKey(t.artworkKey),
@@ -113,6 +121,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     let releaseDate = "";
     let genre = "";
     let kindRaw = "standard";
+    let workKindRaw = "original";
     let artworkBuf: Buffer | null = null;
     let artworkName = "artwork.jpg";
     let masterBuf: Buffer | null = null;
@@ -125,6 +134,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         if (part.fieldname === "releaseDate") releaseDate = v;
         if (part.fieldname === "genre") genre = v;
         if (part.fieldname === "kind") kindRaw = v || "standard";
+        if (part.fieldname === "workKind") workKindRaw = v || "original";
       } else if (part.type === "file") {
         const buf = await part.toBuffer();
         if (buf.length === 0) continue;
@@ -195,6 +205,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const formKind = parseTrackVersionKind(kindRaw);
     const inferredKind = inferTrackVersionKindFromTitle(title.trim(), masterName);
     const kind = formKind !== "standard" ? formKind : inferredKind;
+    const workKind = resolveTrackWorkKind(title.trim(), workKindRaw);
 
     const track = await db.transaction(async (tx) => {
       const [t] = await tx
@@ -205,6 +216,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           genre: genre || null,
           bpm: analyzedBpm,
           musicalKey: analyzedKey,
+          workKind,
           releaseDate: rd,
           artworkKey,
         })
@@ -217,6 +229,23 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       });
       return t;
     });
+
+    if (workKind === "original" && isStemSeparationEnabled()) {
+      const tid = track!.id;
+      const mp3Buf = masterOut;
+      const mp3Name = masterMp3Name;
+      const primaryKind = kind;
+      setImmediate(() => {
+        void runOriginalTrackStemSeparation(app.log, {
+          trackId: tid,
+          masterMp3: mp3Buf,
+          masterMp3BaseName: mp3Name,
+          primaryVersionKind: primaryKind,
+        }).catch((err: unknown) => {
+          app.log.error({ err, trackId: tid }, "stem_separation_job_failed");
+        });
+      });
+    }
 
     reply.code(201);
     return { id: track!.id };
@@ -317,6 +346,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const update: Partial<typeof tracks.$inferInsert> = {};
       let artworkBuf: Buffer | null = null;
       let artworkFilename = "artwork.jpg";
+      let patchWorkKindRaw: string | undefined;
 
       for await (const part of mp) {
         if (part.type === "field") {
@@ -347,6 +377,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           if (part.fieldname === "isDownloadable") {
             update.isDownloadable = v === "1" || v === "true";
           }
+          if (part.fieldname === "workKind") {
+            patchWorkKindRaw = v;
+          }
         } else if (part.type === "file" && part.fieldname === "artwork") {
           const buf = await part.toBuffer();
           if (buf.length > 0) {
@@ -371,6 +404,12 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           return { error: "bad_artist" };
         }
         update.artist = s;
+      }
+
+      if (update.title !== undefined || patchWorkKindRaw !== undefined) {
+        const nextTitle = String(update.title ?? existing.title).trim();
+        const explicit = patchWorkKindRaw !== undefined ? patchWorkKindRaw : existing.workKind;
+        update.workKind = resolveTrackWorkKind(nextTitle, explicit);
       }
 
       if (artworkBuf) {
@@ -399,6 +438,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       musicalKey?: string | null;
       releaseDate?: string;
       isDownloadable?: boolean;
+      workKind?: string;
     };
 
     const update: Partial<typeof tracks.$inferInsert> = {};
@@ -449,6 +489,12 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       }
       update.isDownloadable = body.isDownloadable;
     }
+    if (update.title !== undefined || body.workKind !== undefined) {
+      const nextTitle = String(update.title ?? existing.title).trim();
+      const explicit =
+        body.workKind !== undefined ? String(body.workKind) : existing.workKind;
+      update.workKind = resolveTrackWorkKind(nextTitle, explicit);
+    }
 
     if (Object.keys(update).length === 0) {
       reply.code(400);
@@ -456,6 +502,75 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     }
     await db.update(tracks).set(update).where(eq(tracks.id, id));
     return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/tracks/:id/generate-stems", async (request, reply) => {
+    if (!isStemSeparationEnabled()) {
+      reply.code(503);
+      return {
+        error: "stem_separation_disabled",
+        detail:
+          "Set STEM_SEPARATION_ENABLED or SPLEETER_ENABLED=true and install audio-separator (see README).",
+      };
+    }
+    const { id: trackId } = request.params;
+    const [track] = await db.select().from(tracks).where(eq(tracks.id, trackId)).limit(1);
+    if (!track) {
+      reply.code(404);
+      return { error: "not_found" };
+    }
+
+    const body = (request.body as { stems?: unknown; versionId?: string } | undefined) ?? {};
+    let stems: StemKind[] = ["instrumental", "acapella"];
+    if (Array.isArray(body.stems) && body.stems.length > 0) {
+      const picked = body.stems.filter((s): s is StemKind => s === "instrumental" || s === "acapella");
+      if (picked.length > 0) stems = picked;
+    }
+
+    const vers = await db
+      .select()
+      .from(trackVersions)
+      .where(eq(trackVersions.trackId, trackId))
+      .orderBy(asc(trackVersions.createdAt));
+
+    const versionId = typeof body.versionId === "string" && body.versionId.trim() ? body.versionId.trim() : null;
+    let source = versionId
+      ? vers.find((v) => v.id === versionId)
+      : vers.find((v) => v.masterKey && v.kind !== "instrumental" && v.kind !== "acapella") ??
+        vers.find((v) => v.masterKey);
+
+    if (!source?.masterKey) {
+      reply.code(400);
+      return {
+        error: "no_suitable_master",
+        detail: "Need a version with a master file. Pass versionId or upload a full mix first.",
+      };
+    }
+
+    let masterBuf: Buffer;
+    try {
+      masterBuf = await readObject(source.masterKey);
+    } catch (e) {
+      reply.code(500);
+      return { error: "master_read_failed", detail: (e as Error).message };
+    }
+
+    const baseFromKey = path.basename(source.masterKey);
+    const masterMp3BaseName = baseFromKey.toLowerCase().endsWith(".mp3") ? baseFromKey : `${baseFromKey || "master"}.mp3`;
+
+    try {
+      const { created } = await runStemSeparationFromBuffer(app.log, {
+        trackId,
+        masterMp3: masterBuf,
+        masterMp3BaseName,
+        primaryVersionKind: source.kind,
+        stems,
+      });
+      return { ok: true, created };
+    } catch (e) {
+      reply.code(500);
+      return { error: "stem_separation_failed", detail: (e as Error).message };
+    }
   });
 
   app.delete<{ Params: { id: string } }>("/tracks/:id", async (request, reply) => {

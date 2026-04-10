@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS playlists (
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS bpm integer;
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS musical_key text;
 
+DO $$ BEGIN
+  CREATE TYPE track_work_kind AS ENUM ('original', 'remix');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS work_kind track_work_kind DEFAULT 'original' NOT NULL;
+
 CREATE TABLE IF NOT EXISTS playlist_tracks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   playlist_id uuid NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,

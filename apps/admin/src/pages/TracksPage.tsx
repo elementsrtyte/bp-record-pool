@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { musicalKeyToCamelot, trackVersionDisplayLabel, type TrackVersionKind } from "@bp/shared";
+import {
+  trackVersionDisplayLabel,
+  trackWorkKindDisplayLabel,
+  type TrackVersionKind,
+  type TrackWorkKind,
+} from "@bp/shared";
 import { apiFetch, apiUrl } from "../lib/api";
+import { usePlayer } from "../components/PlayerContext";
 import { supabase } from "../lib/supabase";
 
 type Row = {
@@ -10,8 +16,7 @@ type Row = {
   artist: string;
   releaseDate: string;
   genre: string | null;
-  bpm: number | null;
-  musicalKey: string | null;
+  workKind?: TrackWorkKind;
   isDownloadable?: boolean;
   createdAt: string;
   artworkUrl: string | null;
@@ -26,6 +31,7 @@ function formatAdded(isoDate: string): string {
 }
 
 export function TracksPage() {
+  const { play } = usePlayer();
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -63,6 +69,7 @@ export function TracksPage() {
     setRows(
       data.map((x) => ({
         ...x,
+        workKind: x.workKind ?? "original",
         artworkUrl: x.artworkUrl ?? null,
         defaultVersionId: x.defaultVersionId ?? null,
         versions: Array.isArray(x.versions) ? x.versions : [],
@@ -74,22 +81,29 @@ export function TracksPage() {
     void load();
   }, []);
 
-  const playPreview = useCallback(async (r: Row) => {
-    const withPreview = r.versions?.find((v) => v.hasPreview);
-    const versionId = withPreview?.id ?? r.defaultVersionId;
-    const q =
-      versionId != null && versionId.length > 0
-        ? `?versionId=${encodeURIComponent(versionId)}`
-        : "";
-    try {
-      const res = await fetch(apiUrl(`/api/tracks/${r.id}/preview-url${q}`));
-      if (!res.ok) return;
-      const j = (await res.json()) as { url?: string };
-      if (j.url) window.open(j.url, "_blank", "noopener,noreferrer");
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const playPreview = useCallback(
+    async (r: Row) => {
+      const withPreview = r.versions?.find((v) => v.hasPreview);
+      const versionId = withPreview?.id ?? r.defaultVersionId ?? null;
+      const q =
+        versionId != null && versionId.length > 0
+          ? `?versionId=${encodeURIComponent(versionId)}`
+          : "";
+      try {
+        const res = await fetch(apiUrl(`/api/tracks/${r.id}/preview-url${q}`));
+        if (!res.ok) return;
+        const j = (await res.json()) as { url?: string };
+        if (!j.url) return;
+        const kindLabel = withPreview
+          ? trackVersionDisplayLabel(withPreview.kind as TrackVersionKind)
+          : "Mix";
+        play(`${r.artist} – ${r.title} · ${kindLabel}`, j.url, r.id, versionId);
+      } catch {
+        /* ignore */
+      }
+    },
+    [play],
+  );
 
   async function removeTrack(id: string, title: string) {
     if (!window.confirm(`Delete "${title}"? Files will be removed; this cannot be undone.`)) return;
@@ -131,38 +145,34 @@ export function TracksPage() {
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
-        <table className="w-full min-w-[720px] table-fixed border-collapse text-left text-sm">
+        <table className="w-full min-w-[640px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              <th className="w-[40%] min-w-0 px-3 py-2.5 font-medium" scope="col">
+              <th className="min-w-[min(100%,22rem)] px-3 py-2.5 font-medium md:min-w-[28rem]" scope="col">
                 Track
               </th>
-              <th className="hidden w-16 px-2 py-2.5 font-medium lg:table-cell" scope="col">
-                BPM
-              </th>
-              <th className="hidden w-20 px-2 py-2.5 font-medium xl:table-cell" scope="col">
-                Camelot
-              </th>
-              <th className="hidden w-28 px-2 py-2.5 font-medium sm:table-cell" scope="col">
+              <th className="hidden min-w-[6rem] max-w-[10rem] px-2 py-2.5 font-medium sm:table-cell" scope="col">
                 Genre
               </th>
-              <th className="w-28 px-2 py-2.5 font-medium" scope="col">
+              <th className="hidden whitespace-nowrap px-2 py-2.5 font-medium md:table-cell" scope="col">
+                Type
+              </th>
+              <th className="min-w-[7rem] px-2 py-2.5 font-medium" scope="col">
                 Versions
               </th>
-              <th className="hidden w-16 px-2 py-2.5 font-medium sm:table-cell" scope="col">
+              <th className="hidden whitespace-nowrap px-2 py-2.5 font-medium sm:table-cell" scope="col">
                 DL
               </th>
-              <th className="hidden w-24 shrink-0 px-3 py-2.5 text-right font-medium sm:table-cell" scope="col">
+              <th className="hidden whitespace-nowrap px-3 py-2.5 text-right font-medium sm:table-cell" scope="col">
                 Added
               </th>
-              <th className="min-w-[9rem] shrink-0 px-2 py-2.5 text-right font-medium" scope="col">
+              <th className="w-px whitespace-nowrap px-2 py-2.5 text-right font-medium" scope="col">
                 Actions
               </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => {
-              const camelot = musicalKeyToCamelot(r.musicalKey);
               const vers = r.versions ?? [];
               const canPreview = vers.some((v) => v.hasPreview && v.hasMaster);
               const previewVersionId =
@@ -211,18 +221,6 @@ export function TracksPage() {
                       </div>
                     </div>
                   </td>
-                  <td className="hidden px-2 py-2 align-top tabular-nums text-xs text-muted-foreground lg:table-cell">
-                    {r.bpm != null ? r.bpm : "—"}
-                  </td>
-                  <td className="hidden max-w-[5rem] truncate px-2 py-2 align-top text-xs tabular-nums text-muted-foreground xl:table-cell">
-                    {camelot ? (
-                      <span title={r.musicalKey ?? camelot} className="font-medium text-foreground">
-                        {camelot}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
                   <td className="hidden max-w-[7rem] truncate px-2 py-2 align-top text-xs sm:table-cell">
                     {r.genre ? (
                       <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -231,6 +229,17 @@ export function TracksPage() {
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
+                  </td>
+                  <td className="hidden px-2 py-2 align-top text-xs md:table-cell">
+                    <span
+                      className={
+                        r.workKind === "remix"
+                          ? "font-medium text-primary"
+                          : "text-muted-foreground"
+                      }
+                    >
+                      {trackWorkKindDisplayLabel(r.workKind ?? "original")}
+                    </span>
                   </td>
                   <td className="px-2 py-2 align-top">
                     {vers.length === 0 ? (

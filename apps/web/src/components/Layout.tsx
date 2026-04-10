@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { GlobalPlayer } from "./GlobalPlayer";
 import { usePlayer } from "./PlayerContext";
 import { useShellSearch } from "./ShellSearchContext";
+import { supabase } from "../lib/supabase";
 
 type NavItemProps = { to: string; label: string; end?: boolean; onNavigate?: () => void };
 
@@ -30,8 +31,30 @@ export function Layout({ children }: { children: ReactNode }) {
   const playerOpen = Boolean(url);
   const { query, setQuery } = useShellSearch();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
 
   const closeMobile = () => setMobileNavOpen(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!cancelled) setSignedIn(Boolean(session));
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedIn(Boolean(session));
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    setSignedIn(false);
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -119,12 +142,23 @@ export function Layout({ children }: { children: ReactNode }) {
             />
           </div>
 
-          <Link
-            to="/account"
-            className="inline-flex shrink-0 items-center justify-center rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-95 sm:px-4 sm:text-sm"
-          >
-            Subscribe
-          </Link>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            {signedIn ? (
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                className="inline-flex cursor-pointer items-center justify-center rounded-md px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground sm:px-3 sm:text-sm"
+              >
+                Sign out
+              </button>
+            ) : null}
+            <Link
+              to="/account"
+              className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:opacity-95 sm:px-4 sm:text-sm"
+            >
+              Subscribe
+            </Link>
+          </div>
         </header>
 
         <main className="px-3 py-5 md:px-6 md:py-6">{children}</main>

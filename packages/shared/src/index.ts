@@ -18,6 +18,52 @@ export const TRACK_VERSION_KINDS = [
 export const trackVersionKindSchema = z.enum(TRACK_VERSION_KINDS);
 export type TrackVersionKind = z.infer<typeof trackVersionKindSchema>;
 
+/** Original production vs. remix — set manually at upload; default original. */
+export const TRACK_WORK_KINDS = ["original", "remix"] as const;
+export const trackWorkKindSchema = z.enum(TRACK_WORK_KINDS);
+export type TrackWorkKind = z.infer<typeof trackWorkKindSchema>;
+
+export function trackWorkKindDisplayLabel(kind: TrackWorkKind): string {
+  return kind === "remix" ? "Remix" : "Original";
+}
+
+export function parseTrackWorkKind(input: string | undefined | null): TrackWorkKind {
+  const v = String(input ?? "original").trim().toLowerCase();
+  return v === "remix" ? "remix" : "original";
+}
+
+/**
+ * Title cues that imply a remix-style work (original vs remix). Add patterns here as the list grows.
+ * Uses word boundaries where appropriate; runs on the full NFKC-normalized title.
+ */
+export const TRACK_REMIX_TITLE_REGEXES: readonly RegExp[] = [
+  /\bremix\b/i,
+  /\bedit\b/i,
+  /\bre-?drum\b/i,
+  /\bredrum\b/i,
+];
+
+/** True if the track title matches any {@link TRACK_REMIX_TITLE_REGEXES} pattern. */
+export function inferTrackWorkKindFromTitle(title: string): TrackWorkKind {
+  const s = title.normalize("NFKC");
+  for (const re of TRACK_REMIX_TITLE_REGEXES) {
+    if (re.test(s)) return "remix";
+  }
+  return "original";
+}
+
+/**
+ * Final work kind: title hints force **remix** when matched; otherwise uses the explicit
+ * choice (form field or existing row).
+ */
+export function resolveTrackWorkKind(
+  title: string,
+  explicit: TrackWorkKind | string | undefined | null,
+): TrackWorkKind {
+  if (inferTrackWorkKindFromTitle(title) === "remix") return "remix";
+  return parseTrackWorkKind(explicit);
+}
+
 /** Short badge labels for catalog UI (collapsed row). */
 export function trackVersionKindAbbrev(kind: TrackVersionKind): string {
   const map: Record<TrackVersionKind, string> = {
@@ -128,6 +174,7 @@ export const trackListItemSchema = z.object({
   genre: z.string().nullable(),
   bpm: z.number().int().nullable(),
   musicalKey: z.string().nullable(),
+  workKind: trackWorkKindSchema,
   releaseDate: z.string(),
   artworkUrl: z.string().nullable(),
   /** True if any version has a preview. */
